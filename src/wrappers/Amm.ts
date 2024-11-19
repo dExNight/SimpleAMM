@@ -1,13 +1,29 @@
 import { Address, beginCell, Cell, Contract, contractAddress, ContractProvider, Sender, SendMode } from '@ton/core';
+import { Gas, Opcodes } from './constants';
 
-export type AmmConfig = {};
+export type AmmConfig = {
+    adminAddress: Address;
+    lpName: string;
+};
 
 export function ammConfigToCell(config: AmmConfig): Cell {
-    return beginCell().endCell();
+    return beginCell()
+        .storeUint(0, 1)
+        .storeAddress(config.adminAddress)
+        .storeCoins(0)
+        .storeCoins(0)
+        .storeUint(0, 32)
+        .storeAddress(null)
+        .storeAddress(null)
+        .storeRef(beginCell().storeStringTail(config.lpName).endCell())
+        .endCell();
 }
 
 export class Amm implements Contract {
-    constructor(readonly address: Address, readonly init?: { code: Cell; data: Cell }) {}
+    constructor(
+        readonly address: Address,
+        readonly init?: { code: Cell; data: Cell },
+    ) {}
 
     static createFromAddress(address: Address) {
         return new Amm(address);
@@ -25,5 +41,41 @@ export class Amm implements Contract {
             sendMode: SendMode.PAY_GAS_SEPARATELY,
             body: beginCell().endCell(),
         });
+    }
+
+    async sendInitialize(
+        provider: ContractProvider,
+        via: Sender,
+        wallets: {
+            tokenAWallet: Address;
+            tokenBWallet: Address;
+        },
+        opts?: { queryId: number },
+    ) {
+        await provider.internal(via, {
+            value: Gas.initialize,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell()
+                .storeUint(Opcodes.OP_INITIALIZE_LP, 32)
+                .storeUint(opts ? opts.queryId : 0, 64)
+                .storeAddress(wallets.tokenAWallet)
+                .storeAddress(wallets.tokenBWallet)
+                .endCell(),
+        });
+    }
+
+    async getLpStorage(provider: ContractProvider) {
+        const result = (await provider.get('lp_storage', [])).stack;
+
+        return {
+            init: result.readNumber() === 1,
+            adminAddress: result.readAddress(),
+            tokenA: result.readBigNumber(),
+            tokenB: result.readBigNumber(),
+            k: result.readBigNumber(),
+            tokenAWalletAddress: result.readAddressOpt(),
+            tokenBWalletAddress: result.readAddressOpt(),
+            lpName: result.readString(),
+        };
     }
 }

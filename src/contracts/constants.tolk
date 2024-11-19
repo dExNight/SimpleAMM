@@ -1,0 +1,5 @@
+const OP_INITIALIZE_LP: int = 100;
+
+const EXC_NOT_ADMIN: int = 101;
+const EXC_INVALID_SENDER: int = 102;
+const EXC_ALREADY_INITIALIZED: int = 103;
