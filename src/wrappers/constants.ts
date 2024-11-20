@@ -10,6 +10,9 @@ export const Gas = {
 
 export const Opcodes = {
     OP_INITIALIZE_LP: 100,
+    OP_LIQUDITY_PROVISION: 200,
+    OP_LIQUDITY_PROVIDED: 201,
+    OP_DEPOSIT: 202,
 
     // Jettons
     transfer_jetton: 0xf8a7ea5,
@@ -19,3 +22,5 @@ export const Opcodes = {
     take_wallet_address: 0xd1735400,
     burn_jetton: 0x595f07bc,
 };
+
+const DIVIDER: bigint = 100000000000000000000000000000000000000n;

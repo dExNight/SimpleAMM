@@ -1,9 +1,20 @@
-import { Address, beginCell, Cell, Contract, contractAddress, ContractProvider, Sender, SendMode } from '@ton/core';
+import {
+    Address,
+    beginCell,
+    Cell,
+    Contract,
+    contractAddress,
+    ContractProvider,
+    Sender,
+    SendMode,
+    TupleBuilder,
+} from '@ton/core';
 import { Gas, Opcodes } from './constants';
 
 export type AmmConfig = {
     adminAddress: Address;
     lpName: string;
+    depositHelperCode: Cell;
 };
 
 export function ammConfigToCell(config: AmmConfig): Cell {
@@ -12,10 +23,10 @@ export function ammConfigToCell(config: AmmConfig): Cell {
         .storeAddress(config.adminAddress)
         .storeCoins(0)
         .storeCoins(0)
-        .storeUint(0, 32)
-        .storeAddress(null)
-        .storeAddress(null)
+        .storeUint(0, 256)
+        .storeRef(beginCell().storeAddress(null).storeAddress(null).endCell())
         .storeRef(beginCell().storeStringTail(config.lpName).endCell())
+        .storeRef(config.depositHelperCode)
         .endCell();
 }
 
@@ -77,5 +88,13 @@ export class Amm implements Contract {
             tokenBWalletAddress: result.readAddressOpt(),
             lpName: result.readString(),
         };
+    }
+
+    async getHelperAddresss(provider: ContractProvider, userAddress: Address) {
+        const params = new TupleBuilder();
+        params.writeAddress(userAddress);
+        const result = (await provider.get('get_helper_address', params.build())).stack;
+
+        return result.readAddress();
     }
 }
