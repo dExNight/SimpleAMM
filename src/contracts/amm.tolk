@@ -11,6 +11,7 @@ global tokenAWalletAddress: slice;
 global tokenBWalletAddress: slice;
 global depositHelperCode: cell;
 
+const COMISSION: int = 3;
 
 fun saveData() {
     setContractData(beginCell().storeUint(init, 1).storeSlice(adminAddress).storeCoins(tokenA).storeCoins(tokenB).storeUint(k, 256).storeRef(beginCell().storeSlice(tokenAWalletAddress).storeSlice(tokenBWalletAddress).endCell()).storeRef(lpName).storeRef(depositHelperCode).endCell());
@@ -47,32 +48,32 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
     
     var op: int = msgBody.loadUint(32);
     var queryId: int = msgBody.loadUint(64);
-
     loadData();
 
     if (op == OP_TRANSFER_NOTIFICATION) {
-        assert((isSliceBitsEqual(senderAddress, tokenAWalletAddress) | isSliceBitsEqual(senderAddress, tokenBWalletAddress)), EXC_INVALID_SENDER);
+        var isTokenA: int = isSliceBitsEqual(senderAddress, tokenAWalletAddress);
+        var isTokenB: int = isSliceBitsEqual(senderAddress, tokenBWalletAddress);
+
         var jettonAmount: int = msgBody.loadCoins();
         var fromUser: slice = msgBody.loadAddress();
+
+        if (!isTokenA & !isTokenB) {
+            sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+            return;
+        };
         
         msgBody = msgBody.loadUint(1) ? msgBody.loadRef().beginParse() : msgBody;
 
-        if (getRemainingBitsCount(msgBody) < 32) {
-            sendJettons(queryId, jettonAmount, fromUser, null, isSliceBitsEqual(senderAddress, tokenAWalletAddress) ? tokenAWalletAddress: tokenBWalletAddress, 0, 64, 1, null);
+        if ((getRemainingBitsCount(msgBody) < 32) | !init) {
+            sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
             return;
         }
 
         var innerOp: int = msgBody.loadUint(32);
 
-        if (innerOp != OP_DEPOSIT) {
-            sendJettons(queryId, jettonAmount, fromUser, null, isSliceBitsEqual(senderAddress, tokenAWalletAddress) ? tokenAWalletAddress: tokenBWalletAddress, 0, 64, 1, null);
-            return;
-        }
-
-        var isTokenA: int = isSliceBitsEqual(senderAddress, tokenAWalletAddress) ? 1 : 0; 
-
-        var (depositHelperAddress, stateInit) = calculateDepositHelperAddress(getMyAddress(), fromUser, depositHelperCode);
-        var msg: cell = beginCell()
+        if (innerOp == OP_DEPOSIT) {
+            var (depositHelperAddress, stateInit) = calculateDepositHelperAddress(getMyAddress(), fromUser, depositHelperCode);
+            var msg: cell = beginCell()
                         .storeUint(0x18, 6)
                         .storeSlice(depositHelperAddress)  
                         .storeCoins(0)
@@ -84,10 +85,89 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
                         .storeUint(queryId, 64)
                         .storeCoins(jettonAmount)
                         .storeSlice(fromUser)
-                        .storeUint(isTokenA, 1)
+                        .storeInt(isTokenA, 1)
                     .endCell();
 
-        sendRawMessage(msg, 64);
+            sendRawMessage(msg, 64);
+            return;
+        }
+
+        if (innerOp == OP_SWAP) {
+            if (k == 0) {
+                sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+                return;
+            };
+
+            var minAmountOut: int = msgBody.loadCoins();    
+            var amountIn: int = jettonAmount;
+    
+            // Amount out computation 
+            if (isTokenA) { // Swap A to B
+                var amountOut = mulDivFloor(
+                    amountIn,
+                    tokenB * 997,
+                    tokenA * 1000 + amountIn * 997
+                );
+
+                if ((amountOut < minAmountOut) | (amountOut >= tokenB)) {
+                    sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+                    return;
+                };
+        
+                tokenA += amountIn;
+                tokenB -= amountOut;
+        
+                // process TokenB payment
+                sendJettons(
+                    queryId, 
+                    amountOut,
+                    fromUser,
+                    null,
+                    tokenBWalletAddress,
+                    0,
+                    64,
+                    0,
+                    null
+                );
+            } else { // Swap B to A
+                var amountOut = mulDivFloor(
+                    amountIn,
+                    tokenA * 997,
+                    tokenB * 1000 + amountIn * 997
+                );
+
+                if ((amountOut < minAmountOut) | (amountOut >= tokenA)) {
+                    sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+                    return;
+                };
+        
+                tokenB += amountIn;
+                tokenA -= amountOut;
+        
+                // process TokenA payment
+                sendJettons(
+                    queryId, 
+                    amountOut,
+                    fromUser,
+                    null,
+                    tokenAWalletAddress,
+                    0,
+                    64,
+                    0,
+                    null
+                );
+            }
+    
+            // Check that k did not decreased (protection from manipulation)
+            var new_k: int = tokenA * tokenB;
+            assert(new_k >= k, EXC_K_DECREASED);
+    
+            k = new_k;
+            saveData();
+            return;
+        }
+
+        sendJettons(queryId, jettonAmount, fromUser, null, isSliceBitsEqual(senderAddress, tokenAWalletAddress) ? tokenAWalletAddress: tokenBWalletAddress, 0, 64, 1, null);
         return;
     }
 
@@ -165,4 +245,16 @@ get get_helper_address(user_address: slice): slice {
     loadData();
     var (depositHelperAddress, _) = calculateDepositHelperAddress(getMyAddress(), user_address, depositHelperCode);
     return depositHelperAddress;
+}
+
+get expected_amount_out(amountIn: int, isTokenA: int): int {
+    loadData();
+    var reserveIn: int = isTokenA ? tokenA : tokenB;
+    var reserveOut: int = isTokenA ? tokenB : tokenA;
+    
+    return mulDivFloor(
+        amountIn,
+        reserveOut * 997,
+        reserveIn * 1000 + amountIn * 997
+    );
 }

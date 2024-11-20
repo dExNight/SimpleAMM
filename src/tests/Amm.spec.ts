@@ -1,11 +1,11 @@
 import { Blockchain, SandboxContract, TreasuryContract } from '@ton/sandbox';
-import { beginCell, Cell, toNano } from '@ton/core';
+import { beginCell, Cell, fromNano, toNano } from '@ton/core';
 import { Amm } from '../wrappers/Amm';
 import '@ton/test-utils';
 import { compile } from '@ton/blueprint';
 import { JettonMinter } from '../wrappers/JettonMinter';
 import { JettonWallet } from '../wrappers/JettonWallet';
-import { buildLpDepositPayload } from '../wrappers/payload';
+import { buildLpDepositPayload, buildLpSwapPayload } from '../wrappers/payload';
 import { Opcodes } from '../wrappers/constants';
 import { DepositHelper } from '../wrappers/DepositHelper';
 
@@ -216,5 +216,65 @@ describe('Amm', () => {
             fwdPayload: buildLpDepositPayload(),
             value: toNano('0.5'),
         });
+    });
+
+    it('should successfuly swap', async () => {
+        const initializeResult = await amm.sendInitialize(admin.getSender(), {
+            tokenAWallet: jettonAAmmWallet.address,
+            tokenBWallet: jettonBAmmWallet.address,
+        });
+        const addLiquidityAResult = await userJettonAWallet.sendTransfer(user.getSender(), {
+            toAddress: amm.address,
+            jettonAmount: INITIAL_JETTONS_TO_DEPOSIT,
+            fwdAmount: toNano('0.25'),
+            fwdPayload: buildLpDepositPayload(),
+            value: toNano('0.5'),
+        });
+        const addLiquidityBResult = await userJettonBWallet.sendTransfer(user.getSender(), {
+            toAddress: amm.address,
+            jettonAmount: INITIAL_JETTONS_TO_DEPOSIT,
+            fwdAmount: toNano('0.25'),
+            fwdPayload: buildLpDepositPayload(),
+            value: toNano('0.5'),
+        });
+
+        const swapAAmount = toNano('100');
+        const minBAmountOut = toNano('90');
+        const expectedBAmountOut = await amm.getExpectedAmountOut({
+            amountIn: swapAAmount,
+            isTokenA: true,
+        });
+        const userBalanceBefore = await userJettonBWallet.getJettonBalance();
+
+        const swapResult = await userJettonAWallet.sendTransfer(user.getSender(), {
+            toAddress: amm.address,
+            jettonAmount: swapAAmount,
+            fwdAmount: toNano('0.25'),
+            fwdPayload: buildLpSwapPayload(minBAmountOut),
+            value: toNano('0.5'),
+        });
+
+        expect(swapResult.transactions).toHaveTransaction({
+            from: jettonAAmmWallet.address,
+            to: amm.address,
+            success: true,
+            op: Opcodes.transfer_notification,
+        });
+
+        expect(swapResult.transactions).toHaveTransaction({
+            from: amm.address,
+            to: jettonBAmmWallet.address,
+            success: true,
+            op: Opcodes.transfer_jetton,
+        });
+
+        const userBalanceAfter = await userJettonBWallet.getJettonBalance();
+        console.log('User received: ', fromNano(userBalanceAfter - userBalanceBefore));
+        console.log('Expected: ', fromNano(expectedBAmountOut));
+
+        const { tokenA, tokenB, k } = await amm.getLpStorage();
+        expect(tokenA).toBeGreaterThan(INITIAL_JETTONS_TO_DEPOSIT);
+        expect(tokenB).toBeLessThan(INITIAL_JETTONS_TO_DEPOSIT);
+        expect(k).toBeGreaterThanOrEqual(INITIAL_JETTONS_TO_DEPOSIT * INITIAL_JETTONS_TO_DEPOSIT);
     });
 });

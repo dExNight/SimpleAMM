@@ -41,10 +41,10 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
         assert(isSliceBitsEqual(senderAddress, lpAddress), EXC_INVALID_SENDER);
         var jettonAmount: int = msgBody.loadCoins();
         var fromUser: slice = msgBody.loadAddress();
-        var isTokenA: int = msgBody.loadUint(1);
+        var isTokenA: int = msgBody.loadInt(1);
         // TODO: process topup
         var processLpDeposit: int = 0;
-        if (isTokenA == 1) {
+        if (isTokenA) {
             tokenA += jettonAmount;
             processLpDeposit = tokenB > 0 ? 1 : 0;
         } else {

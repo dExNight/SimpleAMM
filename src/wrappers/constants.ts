@@ -2,6 +2,8 @@ export const Exceptions = {
     EXC_NOT_ADMIN: 101,
     EXC_INVALID_SENDER: 102,
     EXC_ALREADY_INITIALIZED: 103,
+    EXC_INSUFFICIENT_RESERVE: 104,
+    EXC_K_DECREASED: 105,
 };
 
 export const Gas = {
@@ -13,6 +15,7 @@ export const Opcodes = {
     OP_LIQUDITY_PROVISION: 200,
     OP_LIQUDITY_PROVIDED: 201,
     OP_DEPOSIT: 202,
+    OP_SWAP: 203,
 
     // Jettons
     transfer_jetton: 0xf8a7ea5,
@@ -23,4 +26,4 @@ export const Opcodes = {
     burn_jetton: 0x595f07bc,
 };
 
-const DIVIDER: bigint = 100000000000000000000000000000000000000n;
+export const DIVIDER: bigint = 100000000000000000000000000000000000000n;

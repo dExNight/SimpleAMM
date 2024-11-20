@@ -97,4 +97,19 @@ export class Amm implements Contract {
 
         return result.readAddress();
     }
+
+    async getExpectedAmountOut(
+        provider: ContractProvider,
+        opts: {
+            amountIn: bigint;
+            isTokenA: boolean;
+        },
+    ) {
+        const params = new TupleBuilder();
+        params.writeNumber(opts.amountIn);
+        params.writeNumber(opts.isTokenA ? -1 : 0);
+        const result = (await provider.get('expected_amount_out', params.build())).stack;
+
+        return result.readBigNumber();
+    }
 }
