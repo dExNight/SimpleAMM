@@ -6,6 +6,7 @@ const OP_SWAP: int = 203;
 const OP_UPDATE_COMMISSION: int = 204;
 
 const OP_TRANSFER_JETTON: int = 0xf8a7ea5;
+const OP_INTERNAL_TRANSFER: int = 0x178d4519;
 const OP_TRANSFER_NOTIFICATION: int = 0x7362d09c;
 
 const EXC_NOT_ADMIN: int = 101;

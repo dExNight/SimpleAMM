@@ -1,5 +1,6 @@
 import "imports/constants.tolk";
 import "imports/utils.tolk";
+import "imports/jetton_utils.tolk";
 
 global init: int;
 global adminAddress: slice;
@@ -169,6 +170,9 @@ fun handleLiquidityProvision(queryId: int, senderAddress: slice, msgBody: slice)
         tokenA = providedTokenA;
         tokenB = providedTokenB;
         k = tokenA * tokenB;
+
+        totalSupply = sqrt(k);
+        mintInitialLpTokens(queryId, totalSupply, fromUser, getMyAddress(), jettonWalletCode);
     } else {
         var pairFraction: int = mulDivFloor(tokenA, DIVIDER, tokenB);
         var userPairFraction: int = mulDivFloor(providedTokenA, DIVIDER, providedTokenB);
@@ -292,5 +296,6 @@ get get_jetton_data(): (int, int, slice, cell, cell) {
 
 get get_wallet_address(ownerAddress: slice): slice {
     loadData();
-    return calculateUserJettonWalletAddress(ownerAddress, getMyAddress(), jettonWalletCode);
+    var (jettonWalletAddress, _) = calculateUserJettonWalletAddress(ownerAddress, getMyAddress(), jettonWalletCode);
+    return jettonWalletAddress;
 }
