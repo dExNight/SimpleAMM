@@ -31,6 +31,165 @@ fun loadData() {
     depositHelperCode = ds.loadRef();
 }
 
+fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slice): void {
+    var isTokenA: int = isSliceBitsEqual(senderAddress, tokenAWalletAddress);
+    var isTokenB: int = isSliceBitsEqual(senderAddress, tokenBWalletAddress);
+
+    var jettonAmount: int = msgBody.loadCoins();
+    var fromUser: slice = msgBody.loadAddress();
+    msgBody = msgBody.loadUint(1) ? msgBody.loadRef().beginParse() : msgBody;
+
+    if ((!isTokenA & !isTokenB) | (getRemainingBitsCount(msgBody) < 32) | !init) {
+        sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+        return;
+    };
+
+    var innerOp: int = msgBody.loadUint(32);
+
+    if (innerOp == OP_DEPOSIT) {
+        var (depositHelperAddress, stateInit) = calculateDepositHelperAddress(getMyAddress(), fromUser, depositHelperCode);
+        var msg: cell = beginCell()
+                        .storeUint(0x18, 6)
+                        .storeSlice(depositHelperAddress)  
+                        .storeCoins(0)
+                        .storeUint(1, 1 + 4 + 4 + 64 + 32 + 1)
+                        .storeUint(1, 1)
+                        .storeRef(stateInit)
+                        .storeUint(0, 1)
+                        .storeUint(OP_LIQUDITY_PROVISION, 32)
+                        .storeUint(queryId, 64)
+                        .storeCoins(jettonAmount)
+                        .storeSlice(fromUser)
+                        .storeInt(isTokenA, 1)
+                    .endCell();
+
+        sendRawMessage(msg, 64);
+        return;
+    }
+
+    if (innerOp == OP_SWAP) {
+        if (k == 0) {
+            sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+            return;
+        };
+
+        var minAmountOut: int = msgBody.loadCoins();    
+        var amountIn: int = jettonAmount;
+    
+        // Amount out computation 
+        if (isTokenA) { // Swap A to B
+            var amountOut = mulDivFloor(
+                amountIn,
+                tokenB * 997,
+                tokenA * 1000 + amountIn * 997
+            );
+
+            if ((amountOut < minAmountOut) | (amountOut >= tokenB)) {
+                sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+                return;
+            };
+        
+            tokenA += amountIn;
+            tokenB -= amountOut;
+        
+            // process TokenB payment
+            sendJettons(
+                queryId, 
+                amountOut,
+                fromUser,
+                null,
+                tokenBWalletAddress,
+                0,
+                64,
+                0,
+                null
+            );
+        } else { // Swap B to A
+            var amountOut = mulDivFloor(
+                amountIn,
+                tokenA * 997,
+                tokenB * 1000 + amountIn * 997
+            );
+
+            if ((amountOut < minAmountOut) | (amountOut >= tokenA)) {
+                sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+                return;
+            };
+        
+            tokenB += amountIn;
+            tokenA -= amountOut;
+        
+            // process TokenA payment
+            sendJettons(
+                queryId, 
+                amountOut,
+                fromUser,
+                null,
+                tokenAWalletAddress,
+                0,
+                64,
+                0,
+                null
+            );
+        }
+    
+        // Check that k did not decreased (protection from manipulation)
+        var new_k: int = tokenA * tokenB;
+        assert(new_k >= k, EXC_K_DECREASED);
+    
+        k = new_k;
+        saveData();
+        return;
+    }
+
+    sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+    return;
+}
+
+fun handleLiquidityProvision(queryId: int, senderAddress: slice, msgBody: slice): void {
+    var providedTokenA: int = msgBody.loadCoins();
+    var providedTokenB: int = msgBody.loadCoins();
+    var fromUser: slice = msgBody.loadAddress();
+
+    var (depositHelperAddress, _) = calculateDepositHelperAddress(getMyAddress(), fromUser, depositHelperCode);
+    assert(isSliceBitsEqual(depositHelperAddress, senderAddress), EXC_INVALID_SENDER);
+        
+    if (k == 0) {
+        tokenA = providedTokenA;
+        tokenB = providedTokenB;
+        k = tokenA * tokenB;
+    } else {
+        var pairFraction: int = mulDivFloor(tokenA, DIVIDER, tokenB);
+        var userPairFraction: int = mulDivFloor(providedTokenA, DIVIDER, providedTokenB);
+
+        if (pairFraction == userPairFraction) {
+            tokenA += providedTokenA;
+            tokenB += providedTokenB;
+        } else if (pairFraction > userPairFraction) {
+            // User provided too much amount of TokenB
+            var correctTokenB: int = mulDivFloor(providedTokenA, tokenB, tokenA);
+            var excessTokenB: int = providedTokenB - correctTokenB;
+            
+            tokenA += providedTokenA;
+            tokenB += correctTokenB;
+            
+            sendJettons(queryId, excessTokenB, fromUser, null, tokenBWalletAddress, 0, 64, 0, null);
+        } else {
+            // User provided too much amount of TokenA
+            var correctTokenA: int = mulDivFloor(providedTokenB, tokenA, tokenB);
+            var excessTokenA: int = providedTokenA - correctTokenA;
+            
+            tokenA += correctTokenA;
+            tokenB += providedTokenB;
+            
+            sendJettons(queryId, excessTokenA, fromUser, null, tokenAWalletAddress, 0, 64, 0, null);
+        }
+
+        k = tokenA * tokenB;
+        // TODO: mint LP tokens
+    }
+}
+
 
 fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: slice) {
     var cs = msgFull.beginParse();
@@ -51,123 +210,7 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
     loadData();
 
     if (op == OP_TRANSFER_NOTIFICATION) {
-        var isTokenA: int = isSliceBitsEqual(senderAddress, tokenAWalletAddress);
-        var isTokenB: int = isSliceBitsEqual(senderAddress, tokenBWalletAddress);
-
-        var jettonAmount: int = msgBody.loadCoins();
-        var fromUser: slice = msgBody.loadAddress();
-
-        if (!isTokenA & !isTokenB) {
-            sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
-            return;
-        };
-        
-        msgBody = msgBody.loadUint(1) ? msgBody.loadRef().beginParse() : msgBody;
-
-        if ((getRemainingBitsCount(msgBody) < 32) | !init) {
-            sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
-            return;
-        }
-
-        var innerOp: int = msgBody.loadUint(32);
-
-        if (innerOp == OP_DEPOSIT) {
-            var (depositHelperAddress, stateInit) = calculateDepositHelperAddress(getMyAddress(), fromUser, depositHelperCode);
-            var msg: cell = beginCell()
-                        .storeUint(0x18, 6)
-                        .storeSlice(depositHelperAddress)  
-                        .storeCoins(0)
-                        .storeUint(1, 1 + 4 + 4 + 64 + 32 + 1)
-                        .storeUint(1, 1)
-                        .storeRef(stateInit)
-                        .storeUint(0, 1)
-                        .storeUint(OP_LIQUDITY_PROVISION, 32)
-                        .storeUint(queryId, 64)
-                        .storeCoins(jettonAmount)
-                        .storeSlice(fromUser)
-                        .storeInt(isTokenA, 1)
-                    .endCell();
-
-            sendRawMessage(msg, 64);
-            return;
-        }
-
-        if (innerOp == OP_SWAP) {
-            if (k == 0) {
-                sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
-                return;
-            };
-
-            var minAmountOut: int = msgBody.loadCoins();    
-            var amountIn: int = jettonAmount;
-    
-            // Amount out computation 
-            if (isTokenA) { // Swap A to B
-                var amountOut = mulDivFloor(
-                    amountIn,
-                    tokenB * 997,
-                    tokenA * 1000 + amountIn * 997
-                );
-
-                if ((amountOut < minAmountOut) | (amountOut >= tokenB)) {
-                    sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
-                    return;
-                };
-        
-                tokenA += amountIn;
-                tokenB -= amountOut;
-        
-                // process TokenB payment
-                sendJettons(
-                    queryId, 
-                    amountOut,
-                    fromUser,
-                    null,
-                    tokenBWalletAddress,
-                    0,
-                    64,
-                    0,
-                    null
-                );
-            } else { // Swap B to A
-                var amountOut = mulDivFloor(
-                    amountIn,
-                    tokenA * 997,
-                    tokenB * 1000 + amountIn * 997
-                );
-
-                if ((amountOut < minAmountOut) | (amountOut >= tokenA)) {
-                    sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
-                    return;
-                };
-        
-                tokenB += amountIn;
-                tokenA -= amountOut;
-        
-                // process TokenA payment
-                sendJettons(
-                    queryId, 
-                    amountOut,
-                    fromUser,
-                    null,
-                    tokenAWalletAddress,
-                    0,
-                    64,
-                    0,
-                    null
-                );
-            }
-    
-            // Check that k did not decreased (protection from manipulation)
-            var new_k: int = tokenA * tokenB;
-            assert(new_k >= k, EXC_K_DECREASED);
-    
-            k = new_k;
-            saveData();
-            return;
-        }
-
-        sendJettons(queryId, jettonAmount, fromUser, null, isSliceBitsEqual(senderAddress, tokenAWalletAddress) ? tokenAWalletAddress: tokenBWalletAddress, 0, 64, 1, null);
+        handleTransferNotification(queryId, senderAddress, msgBody);
         return;
     }
 
@@ -186,52 +229,9 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
         if (!init) {
             return;
         }
-        var providedTokenA: int = msgBody.loadCoins();
-        var providedTokenB: int = msgBody.loadCoins();
-        var fromUser: slice = msgBody.loadAddress();
-
-        var (depositHelperAddress, _) = calculateDepositHelperAddress(getMyAddress(), fromUser, depositHelperCode);
-        assert(isSliceBitsEqual(depositHelperAddress, senderAddress), EXC_INVALID_SENDER);
-        
-        if (k == 0) {
-            tokenA = providedTokenA;
-            tokenB = providedTokenB;
-            k = tokenA * tokenB;
-            saveData();
-            return;
-        } else {
-            var pairFraction: int = mulDivFloor(tokenA, DIVIDER, tokenB);
-            var userPairFraction: int = mulDivFloor(providedTokenA, DIVIDER, providedTokenB);
-
-            if (pairFraction == userPairFraction) {
-                tokenA += providedTokenA;
-                tokenB += providedTokenB;
-            } else if (pairFraction > userPairFraction) {
-                // User provided too much amount of TokenB
-                var correctTokenB: int = mulDivFloor(providedTokenA * tokenB, DIVIDER, tokenA);
-                var excessTokenB: int = providedTokenB * DIVIDER - correctTokenB;
-            
-                tokenA += providedTokenA;
-                tokenB += correctTokenB;
-            
-                sendJettons(queryId, excessTokenB / DIVIDER, fromUser, null, tokenBWalletAddress, 0, 64, 0, null);
-            } else {
-                // User provided too much amount of TokenA
-                var correctTokenA: int = mulDivFloor(providedTokenB * tokenA, DIVIDER, tokenB);
-                var excessTokenA: int = providedTokenA - correctTokenA;
-            
-                tokenA += correctTokenA;
-                tokenB += providedTokenB;
-            
-                sendJettons(queryId, excessTokenA / DIVIDER, fromUser, null, tokenAWalletAddress, 0, 64, 0, null);
-            }
-
-            k = tokenA * tokenB;
-            // TODO: mint LP tokens
-            saveData();
-            return;
-        }
-
+        handleLiquidityProvision(queryId, senderAddress, msgBody);
+        saveData();
+        return;
     }
 }
 
