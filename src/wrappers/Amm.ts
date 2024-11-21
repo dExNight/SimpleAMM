@@ -24,7 +24,7 @@ export function ammConfigToCell(config: AmmConfig): Cell {
         .storeCoins(0)
         .storeCoins(0)
         .storeUint(0, 256)
-        .storeRef(beginCell().storeAddress(null).storeAddress(null).endCell())
+        .storeRef(beginCell().storeAddress(null).storeAddress(null).storeUint(0, 32).endCell())
         .storeRef(beginCell().storeStringTail(config.lpName).endCell())
         .storeRef(config.depositHelperCode)
         .endCell();
@@ -57,9 +57,10 @@ export class Amm implements Contract {
     async sendInitialize(
         provider: ContractProvider,
         via: Sender,
-        wallets: {
+        params: {
             tokenAWallet: Address;
             tokenBWallet: Address;
+            swapComission: number;
         },
         opts?: { queryId: number },
     ) {
@@ -69,8 +70,9 @@ export class Amm implements Contract {
             body: beginCell()
                 .storeUint(Opcodes.OP_INITIALIZE_LP, 32)
                 .storeUint(opts ? opts.queryId : 0, 64)
-                .storeAddress(wallets.tokenAWallet)
-                .storeAddress(wallets.tokenBWallet)
+                .storeAddress(params.tokenAWallet)
+                .storeAddress(params.tokenBWallet)
+                .storeUint(params.swapComission, 32)
                 .endCell(),
         });
     }
@@ -111,5 +113,21 @@ export class Amm implements Contract {
         const result = (await provider.get('expected_amount_out', params.build())).stack;
 
         return result.readBigNumber();
+    }
+
+    async getPriceImpact(
+        provider: ContractProvider,
+        opts: {
+            amountIn: bigint;
+            isTokenA: boolean;
+        },
+    ) {
+        const params = new TupleBuilder();
+        params.writeNumber(opts.amountIn);
+        params.writeNumber(opts.isTokenA ? -1 : 0);
+        const result = (await provider.get('price_impact', params.build())).stack;
+        const numerator: number = Number(result.readBigNumber());
+        const denominator: number = Number(result.readBigNumber());
+        return numerator / denominator;
     }
 }

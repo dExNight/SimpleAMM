@@ -9,12 +9,29 @@ global tokenB: int;
 global k: int;
 global tokenAWalletAddress: slice;
 global tokenBWalletAddress: slice;
+global swapComission: int;
 global depositHelperCode: cell;
 
-const COMISSION: int = 3;
 
 fun saveData() {
-    setContractData(beginCell().storeUint(init, 1).storeSlice(adminAddress).storeCoins(tokenA).storeCoins(tokenB).storeUint(k, 256).storeRef(beginCell().storeSlice(tokenAWalletAddress).storeSlice(tokenBWalletAddress).endCell()).storeRef(lpName).storeRef(depositHelperCode).endCell());
+    setContractData(
+        beginCell()
+            .storeUint(init, 1)
+            .storeSlice(adminAddress)
+            .storeCoins(tokenA)
+            .storeCoins(tokenB)
+            .storeUint(k, 256)
+            .storeRef(
+            beginCell()
+                    .storeSlice(tokenAWalletAddress)
+                    .storeSlice(tokenBWalletAddress)
+                    .storeUint(swapComission, 32)
+                .endCell()
+        )
+            .storeRef(lpName)
+            .storeRef(depositHelperCode)
+        .endCell()
+    );
 }
 
 fun loadData() {
@@ -24,11 +41,23 @@ fun loadData() {
     tokenA = ds.loadCoins();
     tokenB = ds.loadCoins();
     k = ds.loadUint(256);
+
     var dv: slice = ds.loadRef().beginParse();
     tokenAWalletAddress = dv.loadAddress();
     tokenBWalletAddress = dv.loadAddress();
-    lpName = ds.loadRef(); // about 125 bits at max
+    swapComission = dv.loadUint(32); // 30 by default
+    
+    lpName = ds.loadRef();
     depositHelperCode = ds.loadRef();
+}
+
+fun calculateAmountOut(amountIn: int, reserveIn: int, reserveOut: int): int {
+    var netRate: int = SWAP_COMISSION_DENOMINATOR - swapComission;
+    return mulDivFloor(
+        amountIn,
+        reserveOut * netRate,
+        reserveIn * SWAP_COMISSION_DENOMINATOR + amountIn * netRate
+    );
 }
 
 fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slice): void {
@@ -68,70 +97,43 @@ fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slic
     }
 
     if (innerOp == OP_SWAP) {
-        if (k == 0) {
+        if ((k == 0) | (jettonAmount <= 0) | (tokenA <= 0) | (tokenB <= 0)) {
             sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
             return;
         };
 
-        var minAmountOut: int = msgBody.loadCoins();    
+        // Amount out computation
         var amountIn: int = jettonAmount;
-    
-        // Amount out computation 
-        if (isTokenA) { // Swap A to B
-            var amountOut = mulDivFloor(
-                amountIn,
-                tokenB * 997,
-                tokenA * 1000 + amountIn * 997
-            );
+        var (reserveIn, reserveOut) = isTokenA ? (tokenA, tokenB) : (tokenB, tokenA);
+        var amountOut = calculateAmountOut(amountIn, reserveIn, reserveOut);
 
-            if ((amountOut < minAmountOut) | (amountOut >= tokenB)) {
-                sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
-                return;
-            };
-        
+        var minAmountOut: int = msgBody.loadCoins();
+
+        if ((amountOut < minAmountOut) | (amountOut >= reserveOut)) {
+            sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+            return;
+        };
+
+        if (isTokenA) {
             tokenA += amountIn;
             tokenB -= amountOut;
-        
-            // process TokenB payment
-            sendJettons(
-                queryId, 
-                amountOut,
-                fromUser,
-                null,
-                tokenBWalletAddress,
-                0,
-                64,
-                0,
-                null
-            );
-        } else { // Swap B to A
-            var amountOut = mulDivFloor(
-                amountIn,
-                tokenA * 997,
-                tokenB * 1000 + amountIn * 997
-            );
-
-            if ((amountOut < minAmountOut) | (amountOut >= tokenA)) {
-                sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
-                return;
-            };
-        
+        } else {
             tokenB += amountIn;
             tokenA -= amountOut;
-        
-            // process TokenA payment
-            sendJettons(
-                queryId, 
-                amountOut,
-                fromUser,
-                null,
-                tokenAWalletAddress,
-                0,
-                64,
-                0,
-                null
-            );
         }
+
+        // process payment
+        sendJettons(
+            queryId, 
+            amountOut,
+            fromUser,
+            null,
+            isTokenA ? tokenBWalletAddress: tokenAWalletAddress,
+            0,
+            64,
+            0,
+            null
+        );
     
         // Check that k did not decreased (protection from manipulation)
         var new_k: int = tokenA * tokenB;
@@ -214,22 +216,32 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
         return;
     }
 
-    if (op == OP_INITIALIZE_LP) {
-        assert(!init, EXC_ALREADY_INITIALIZED);
-        assert(isSliceBitsEqual(senderAddress, adminAddress), EXC_NOT_ADMIN);
-
-        tokenAWalletAddress = msgBody.loadAddress();
-        tokenBWalletAddress = msgBody.loadAddress();
-        init = 1;
-        saveData();
-        return;
-    }
-
     if (op == OP_LIQUDITY_PROVIDED) {
         if (!init) {
             return;
         }
         handleLiquidityProvision(queryId, senderAddress, msgBody);
+        saveData();
+        return;
+    }
+
+    assert(isSliceBitsEqual(senderAddress, adminAddress), EXC_NOT_ADMIN);
+
+    if (op == OP_INITIALIZE_LP) {
+        assert(!init, EXC_ALREADY_INITIALIZED);
+        tokenAWalletAddress = msgBody.loadAddress();
+        tokenBWalletAddress = msgBody.loadAddress();
+        swapComission = msgBody.loadUint(32);
+        assert(swapComission < SWAP_COMISSION_DENOMINATOR, EXC_INVALID_COMMISSION);
+        init = 1;
+        saveData();
+        return;
+    }
+
+    if (op == OP_UPDATE_COMMISSION) {
+        var newCommission: int = msgBody.loadUint(32);
+        assert(newCommission < SWAP_COMISSION_DENOMINATOR, EXC_INVALID_COMMISSION);
+        swapComission = newCommission;
         saveData();
         return;
     }
@@ -249,11 +261,16 @@ get get_helper_address(user_address: slice): slice {
 
 get expected_amount_out(amountIn: int, isTokenA: int): int {
     loadData();
-    var reserveIn: int = isTokenA ? tokenA : tokenB;
-    var reserveOut: int = isTokenA ? tokenB : tokenA;
+    var (reserveIn, reserveOut) = isTokenA ? (tokenA, tokenB) : (tokenB, tokenA);
+    var netRate: int = SWAP_COMISSION_DENOMINATOR - swapComission;
     return mulDivFloor(
         amountIn,
-        reserveOut * 997,
-        reserveIn * 1000 + amountIn * 997
+        reserveOut * netRate,
+        reserveIn * SWAP_COMISSION_DENOMINATOR + amountIn * netRate
     );
+}
+
+get price_impact(amountIn: int, isTokenA: int): (int, int) {
+    loadData();
+    // TODO
 }

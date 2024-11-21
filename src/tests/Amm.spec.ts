@@ -117,6 +117,7 @@ describe('Amm', () => {
         const initializeResult = await amm.sendInitialize(admin.getSender(), {
             tokenAWallet: jettonAAmmWallet.address,
             tokenBWallet: jettonBAmmWallet.address,
+            swapComission: 3,
         });
         expect(initializeResult.transactions).toHaveTransaction({
             from: admin.address,
@@ -135,6 +136,7 @@ describe('Amm', () => {
         const initializeResult = await amm.sendInitialize(admin.getSender(), {
             tokenAWallet: jettonAAmmWallet.address,
             tokenBWallet: jettonBAmmWallet.address,
+            swapComission: 3,
         });
         const addLiquidityAResult = await userJettonAWallet.sendTransfer(user.getSender(), {
             toAddress: amm.address,
@@ -202,6 +204,7 @@ describe('Amm', () => {
         const initializeResult = await amm.sendInitialize(admin.getSender(), {
             tokenAWallet: jettonAAmmWallet.address,
             tokenBWallet: jettonBAmmWallet.address,
+            swapComission: 3,
         });
         const addLiquidityAResult = await userJettonAWallet.sendTransfer(user.getSender(), {
             toAddress: amm.address,
@@ -223,6 +226,7 @@ describe('Amm', () => {
         const initializeResult = await amm.sendInitialize(admin.getSender(), {
             tokenAWallet: jettonAAmmWallet.address,
             tokenBWallet: jettonBAmmWallet.address,
+            swapComission: 3,
         });
         const addLiquidityAResult = await userJettonAWallet.sendTransfer(user.getSender(), {
             toAddress: amm.address,
@@ -282,6 +286,7 @@ describe('Amm', () => {
         const initializeResult = await amm.sendInitialize(admin.getSender(), {
             tokenAWallet: jettonAAmmWallet.address,
             tokenBWallet: jettonBAmmWallet.address,
+            swapComission: 3,
         });
         const addLiquidityAResult = await userJettonAWallet.sendTransfer(user.getSender(), {
             toAddress: amm.address,
@@ -358,6 +363,7 @@ describe('Amm', () => {
         const initializeResult = await amm.sendInitialize(admin.getSender(), {
             tokenAWallet: jettonAAmmWallet.address,
             tokenBWallet: jettonBAmmWallet.address,
+            swapComission: 3,
         });
         const addLiquidityAResult = await userJettonAWallet.sendTransfer(user.getSender(), {
             toAddress: amm.address,
@@ -387,7 +393,7 @@ describe('Amm', () => {
             amountIn: BigInt(10 * 10 ** usdtDecimals),
             isTokenA: false,
         });
-        
+
         const swapBAmount = 10n * BigInt(10 ** usdtDecimals);
         const minAAmountOut = expectedAmount;
 
