@@ -6,7 +6,14 @@ global tokenA: int;
 global tokenB: int;
 
 fun saveData() {
-    setContractData(beginCell().storeSlice(lpAddress).storeSlice(ownerAddress).storeCoins(tokenA).storeCoins(tokenB).endCell());
+    setContractData(
+        beginCell()
+            .storeSlice(lpAddress)
+            .storeSlice(ownerAddress)
+            .storeCoins(tokenA)
+            .storeCoins(tokenB)
+        .endCell()
+    );
 }
 
 fun loadData() {
@@ -42,7 +49,7 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
         var jettonAmount: int = msgBody.loadCoins();
         var fromUser: slice = msgBody.loadAddress();
         var isTokenA: int = msgBody.loadInt(1);
-        // TODO: process topup
+
         var processLpDeposit: int = 0;
         if (isTokenA) {
             tokenA += jettonAmount;
