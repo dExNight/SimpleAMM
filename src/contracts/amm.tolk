@@ -2,15 +2,18 @@ import "imports/constants.tolk";
 import "imports/utils.tolk";
 
 global init: int;
-global lpName: cell;
 global adminAddress: slice;
 global tokenA: int;
 global tokenB: int;
 global k: int;
+global totalSupply: int;
 global tokenAWalletAddress: slice;
 global tokenBWalletAddress: slice;
 global swapComission: int;
+global lpName: cell;
 global depositHelperCode: cell;
+global jettonWalletCode: cell;
+global content: cell;
 
 
 fun saveData() {
@@ -21,15 +24,18 @@ fun saveData() {
             .storeCoins(tokenA)
             .storeCoins(tokenB)
             .storeUint(k, 256)
+            .storeCoins(totalSupply)
             .storeRef(
             beginCell()
                     .storeSlice(tokenAWalletAddress)
                     .storeSlice(tokenBWalletAddress)
                     .storeUint(swapComission, 32)
+                    .storeRef(lpName)
                 .endCell()
         )
-            .storeRef(lpName)
             .storeRef(depositHelperCode)
+            .storeRef(jettonWalletCode)
+            .storeRef(content)
         .endCell()
     );
 }
@@ -41,14 +47,17 @@ fun loadData() {
     tokenA = ds.loadCoins();
     tokenB = ds.loadCoins();
     k = ds.loadUint(256);
+    totalSupply = ds.loadCoins();
 
     var dv: slice = ds.loadRef().beginParse();
     tokenAWalletAddress = dv.loadAddress();
     tokenBWalletAddress = dv.loadAddress();
     swapComission = dv.loadUint(32); // 30 by default
+    lpName = dv.loadRef();
     
-    lpName = ds.loadRef();
     depositHelperCode = ds.loadRef();
+    jettonWalletCode = ds.loadRef();
+    content = ds.loadRef();
 }
 
 fun calculateAmountOut(amountIn: int, reserveIn: int, reserveOut: int): int {
@@ -273,4 +282,15 @@ get expected_amount_out(amountIn: int, isTokenA: int): int {
 get price_impact(amountIn: int, isTokenA: int): (int, int) {
     loadData();
     // TODO
+    return (1, 100);
+}
+
+get get_jetton_data(): (int, int, slice, cell, cell) {
+    loadData();
+    return (totalSupply, -1, adminAddress, content, jettonWalletCode);
+}
+
+get get_wallet_address(ownerAddress: slice): slice {
+    loadData();
+    return calculateUserJettonWalletAddress(ownerAddress, getMyAddress(), jettonWalletCode);
 }

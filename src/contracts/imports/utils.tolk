@@ -60,3 +60,13 @@ fun sendJettons(queryId: int, jettonAmount: int, toAddress: slice, responseAddre
             
     sendRawMessage(msg, sendingMode);  
 }
+
+fun calculateUserJettonWalletAddress(ownerAddress: slice, jettonMasterAddress: slice, jettonWalletCode: cell): slice {
+    var data: cell = beginCell()
+                .storeCoins(0)
+                .storeSlice(ownerAddress)
+                .storeSlice(jettonMasterAddress)
+                .storeRef(jettonWalletCode)
+            .endCell();
+    return calculateAddress(calculateStateInit(jettonWalletCode, data));
+}

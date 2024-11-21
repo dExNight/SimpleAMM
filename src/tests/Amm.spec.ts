@@ -77,6 +77,8 @@ describe('Amm', () => {
                     adminAddress: admin.address,
                     lpName: LpName,
                     depositHelperCode: await compile('DepositHelper'),
+                    jettonWalletCode: await compile('DepositHelper'),
+                    content: beginCell().endCell(),
                 },
                 code,
             ),

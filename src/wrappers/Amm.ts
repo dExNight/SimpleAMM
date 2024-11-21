@@ -15,6 +15,8 @@ export type AmmConfig = {
     adminAddress: Address;
     lpName: string;
     depositHelperCode: Cell;
+    jettonWalletCode: Cell;
+    content: Cell;
 };
 
 export function ammConfigToCell(config: AmmConfig): Cell {
@@ -24,9 +26,18 @@ export function ammConfigToCell(config: AmmConfig): Cell {
         .storeCoins(0)
         .storeCoins(0)
         .storeUint(0, 256)
-        .storeRef(beginCell().storeAddress(null).storeAddress(null).storeUint(0, 32).endCell())
-        .storeRef(beginCell().storeStringTail(config.lpName).endCell())
+        .storeCoins(0)
+        .storeRef(
+            beginCell()
+                .storeAddress(null)
+                .storeAddress(null)
+                .storeUint(0, 32)
+                .storeRef(beginCell().storeStringTail(config.lpName).endCell())
+                .endCell(),
+        )
         .storeRef(config.depositHelperCode)
+        .storeRef(config.jettonWalletCode)
+        .storeRef(config.content)
         .endCell();
 }
 
