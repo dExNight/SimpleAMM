@@ -251,7 +251,6 @@ get expected_amount_out(amountIn: int, isTokenA: int): int {
     loadData();
     var reserveIn: int = isTokenA ? tokenA : tokenB;
     var reserveOut: int = isTokenA ? tokenB : tokenA;
-    
     return mulDivFloor(
         amountIn,
         reserveOut * 997,

@@ -8,6 +8,7 @@ import { JettonWallet } from '../wrappers/JettonWallet';
 import { buildLpDepositPayload, buildLpSwapPayload } from '../wrappers/payload';
 import { Opcodes } from '../wrappers/constants';
 import { DepositHelper } from '../wrappers/DepositHelper';
+import { LpPriceCalculator } from '../utils/tokenPriceCalculator';
 
 const LpName: string = 'NOT/USDT';
 const INITIAL_JETTONS_TO_DEPOSIT: bigint = toNano('1000');
@@ -346,5 +347,79 @@ describe('Amm', () => {
         expect(tokenA).toBeGreaterThan(INITIAL_JETTONS_TO_DEPOSIT);
         expect(tokenB).toBeLessThan(INITIAL_JETTONS_TO_DEPOSIT);
         expect(k).toBeGreaterThanOrEqual(INITIAL_JETTONS_TO_DEPOSIT * INITIAL_JETTONS_TO_DEPOSIT);
+    });
+
+    it('should compute token prices', async () => {
+        const notDecimals: number = 9;
+        const usdtDecimals: number = 6;
+        const notToDeposit: number = 1000 * 10 ** notDecimals;
+        const usdtToDeposit: number = 100 * 10 ** usdtDecimals;
+
+        const initializeResult = await amm.sendInitialize(admin.getSender(), {
+            tokenAWallet: jettonAAmmWallet.address,
+            tokenBWallet: jettonBAmmWallet.address,
+        });
+        const addLiquidityAResult = await userJettonAWallet.sendTransfer(user.getSender(), {
+            toAddress: amm.address,
+            jettonAmount: BigInt(notToDeposit),
+            fwdAmount: toNano('0.25'),
+            fwdPayload: buildLpDepositPayload(),
+            value: toNano('0.5'),
+        });
+        const addLiquidityBResult = await userJettonBWallet.sendTransfer(user.getSender(), {
+            toAddress: amm.address,
+            jettonAmount: BigInt(usdtToDeposit),
+            fwdAmount: toNano('0.25'),
+            fwdPayload: buildLpDepositPayload(),
+            value: toNano('0.5'),
+        });
+
+        const { tokenA: tokenAInitial, tokenB: tokenBInitial } = await amm.getLpStorage();
+
+        // Initially in the pool: 1000 NOT and 1000000 USDT
+        const priceCalculator = new LpPriceCalculator(LpName, notDecimals, usdtDecimals);
+        const { priceAtoB, priceBtoA } = priceCalculator.calculateTokenPrice(tokenAInitial, tokenBInitial);
+
+        console.log('Price for 1 NOT = ', priceAtoB, 'USDT');
+        console.log('Price for 1 USDT = ', priceBtoA, 'NOT');
+
+        const expectedAmount = await amm.getExpectedAmountOut({
+            amountIn: BigInt(10 * 10 ** usdtDecimals),
+            isTokenA: false,
+        });
+        
+        const swapBAmount = 10n * BigInt(10 ** usdtDecimals);
+        const minAAmountOut = expectedAmount;
+
+        const userBalanceBefore: bigint = await userJettonAWallet.getJettonBalance();
+
+        const swapResult = await userJettonBWallet.sendTransfer(user.getSender(), {
+            toAddress: amm.address,
+            jettonAmount: swapBAmount,
+            fwdAmount: toNano('0.25'),
+            fwdPayload: buildLpSwapPayload(minAAmountOut),
+            value: toNano('0.5'),
+        });
+
+        expect(swapResult.transactions).toHaveTransaction({
+            from: jettonBAmmWallet.address,
+            to: amm.address,
+            success: true,
+            op: Opcodes.transfer_notification,
+        });
+
+        expect(swapResult.transactions).toHaveTransaction({
+            from: amm.address,
+            to: jettonAAmmWallet.address,
+            success: true,
+            op: Opcodes.transfer_jetton,
+        });
+
+        const userBalanceAfter: bigint = await userJettonAWallet.getJettonBalance();
+        const received = fromNano(userBalanceAfter - userBalanceBefore);
+        console.log('User received: ', received, 'NOT');
+
+        // Проверяем что получили примерно 99.7 NOT
+        expect(Number(received)).toBeGreaterThanOrEqual(Number(expectedAmount) / 10 ** notDecimals);
     });
 });
