@@ -8,6 +8,7 @@ export const Exceptions = {
 
 export const Gas = {
     initialize: 50000000n,
+    burn_lp: 500000000n,
 };
 
 export const Opcodes = {
@@ -24,6 +25,7 @@ export const Opcodes = {
     provide_wallet_address: 0x2c76b973,
     take_wallet_address: 0xd1735400,
     burn_jetton: 0x595f07bc,
+    burn_notification: 0x7bdd97de,
 };
 
 export const DIVIDER: bigint = 100000000000000000000000000000000000000n;

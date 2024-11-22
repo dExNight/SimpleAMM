@@ -15,6 +15,8 @@ export type AmmConfig = {
     adminAddress: Address;
     lpName: string;
     depositHelperCode: Cell;
+    jettonWalletCode: Cell;
+    content: Cell;
 };
 
 export function ammConfigToCell(config: AmmConfig): Cell {
@@ -24,9 +26,18 @@ export function ammConfigToCell(config: AmmConfig): Cell {
         .storeCoins(0)
         .storeCoins(0)
         .storeUint(0, 256)
-        .storeRef(beginCell().storeAddress(null).storeAddress(null).storeUint(0, 32).endCell())
-        .storeRef(beginCell().storeStringTail(config.lpName).endCell())
+        .storeCoins(0)
+        .storeRef(
+            beginCell()
+                .storeAddress(null)
+                .storeAddress(null)
+                .storeUint(0, 32)
+                .storeRef(beginCell().storeStringTail(config.lpName).endCell())
+                .endCell(),
+        )
         .storeRef(config.depositHelperCode)
+        .storeRef(config.jettonWalletCode)
+        .storeRef(config.content)
         .endCell();
 }
 
@@ -86,9 +97,14 @@ export class Amm implements Contract {
             tokenA: result.readBigNumber(),
             tokenB: result.readBigNumber(),
             k: result.readBigNumber(),
+            totalSupply: result.readBigNumber(),
             tokenAWalletAddress: result.readAddressOpt(),
             tokenBWalletAddress: result.readAddressOpt(),
+            swapComission: result.readNumber(),
             lpName: result.readString(),
+            depositHelperCode: result.readCell(),
+            jettonWalletCode: result.readCell(),
+            content: result.readCell(),
         };
     }
 
@@ -129,5 +145,25 @@ export class Amm implements Contract {
         const numerator: number = Number(result.readBigNumber());
         const denominator: number = Number(result.readBigNumber());
         return numerator / denominator;
+    }
+
+    async getJettonData(provider: ContractProvider) {
+        const result = (await provider.get('get_jetton_data', [])).stack;
+
+        return {
+            totalSupply: result.readBigNumber(),
+            isMintable: result.readBoolean(),
+            adminAddress: result.readAddress(),
+            content: result.readCell(),
+            jettonWalletCode: result.readCell(),
+        };
+    }
+
+    async getWalletAddresss(provider: ContractProvider, userAddress: Address) {
+        const params = new TupleBuilder();
+        params.writeAddress(userAddress);
+        const result = (await provider.get('get_wallet_address', params.build())).stack;
+
+        return result.readAddress();
     }
 }

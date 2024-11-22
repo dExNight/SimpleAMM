@@ -1,5 +1,38 @@
 import "constants.tolk"
 
+fun sqrt(x: int): int {
+    if (x == 0) { return x; }
+
+    var r: int = 181;
+    var xx: int = x;
+    if (xx >= 0x100000000000000000000000000000000) {
+        xx >>= 128;
+        r <<= 64;
+    }
+    if (xx >= 0x10000000000000000) {
+        xx >>= 64;
+        r <<= 32;
+    }
+    if (xx >= 0x100000000) {
+        xx >>= 32;
+        r <<= 16;
+    }
+    if (xx >= 0x10000) {
+        xx >>= 16;
+        r <<= 8;
+    }
+
+    r = (r * (xx + 65536)) >> 18;
+
+    repeat(7) {
+        r = (r + x / r) >> 1;
+    }
+
+    var r1: int = x / r;
+
+    return (r < r1 ? r : r1);
+}
+
 fun calculateStateInit(code: cell, data: cell): cell {
     return beginCell()
             .storeUint(0, 2)
@@ -59,4 +92,9 @@ fun sendJettons(queryId: int, jettonAmount: int, toAddress: slice, responseAddre
             .endCell();
             
     sendRawMessage(msg, sendingMode);  
+}
+
+fun forceChain(address: slice): void {
+    var (wc, _) = parseStandardAddress(address);
+    assert(wc == workchain(), 333);
 }

@@ -34,6 +34,7 @@ describe('Amm', () => {
     let jettonBAmmWallet: SandboxContract<JettonWallet>;
     let userJettonAWallet: SandboxContract<JettonWallet>;
     let userJettonBWallet: SandboxContract<JettonWallet>;
+    let userLpTokensWallet: SandboxContract<JettonWallet>;
 
     beforeEach(async () => {
         blockchain = await Blockchain.create();
@@ -77,6 +78,8 @@ describe('Amm', () => {
                     adminAddress: admin.address,
                     lpName: LpName,
                     depositHelperCode: await compile('DepositHelper'),
+                    jettonWalletCode: await compile('LpWallet'),
+                    content: beginCell().endCell(),
                 },
                 code,
             ),
@@ -106,6 +109,10 @@ describe('Amm', () => {
         userDepositHelper = blockchain.openContract(
             DepositHelper.createFromAddress(await amm.getHelperAddresss(user.address)),
         );
+
+        userLpTokensWallet = blockchain.openContract(
+            JettonWallet.createFromAddress(await amm.getWalletAddresss(user.address)),
+        );
     });
 
     it('should deploy', async () => {
@@ -132,7 +139,7 @@ describe('Amm', () => {
         expect(tokenBWalletAddress).toEqualAddress(jettonBAmmWallet.address);
     });
 
-    it('should successfuly provide liquidity', async () => {
+    it('should successfuly provide liquidity & mint lp tokens', async () => {
         const initializeResult = await amm.sendInitialize(admin.getSender(), {
             tokenAWallet: jettonAAmmWallet.address,
             tokenBWallet: jettonBAmmWallet.address,
@@ -193,11 +200,22 @@ describe('Amm', () => {
             op: Opcodes.OP_LIQUDITY_PROVIDED,
         });
 
-        const { tokenA, tokenB, k } = await amm.getLpStorage();
+        expect(addLiquidityBResult.transactions).toHaveTransaction({
+            from: amm.address,
+            to: userLpTokensWallet.address,
+            success: true,
+            op: Opcodes.internal_transfer,
+        });
+
+        const { tokenA, tokenB, k, totalSupply } = await amm.getLpStorage();
         const expectedK: bigint = INITIAL_JETTONS_TO_DEPOSIT * INITIAL_JETTONS_TO_DEPOSIT;
         expect(tokenA).toEqual(INITIAL_JETTONS_TO_DEPOSIT);
         expect(tokenB).toEqual(INITIAL_JETTONS_TO_DEPOSIT);
         expect(k).toEqual(expectedK);
+        expect(Number(totalSupply)).toBeCloseTo(Math.sqrt(Number(k)));
+
+        const userLpBalance = await userLpTokensWallet.getJettonBalance();
+        expect(userLpBalance).toEqual(totalSupply);
     });
 
     it('should successfuly provide liquidity 2', async () => {
@@ -397,6 +415,12 @@ describe('Amm', () => {
         const swapBAmount = 10n * BigInt(10 ** usdtDecimals);
         const minAAmountOut = expectedAmount;
 
+        const priceImpact = await amm.getPriceImpact({
+            amountIn: swapBAmount,
+            isTokenA: false,
+        });
+        console.log('Price impact: ', priceImpact, '%');
+        
         const userBalanceBefore: bigint = await userJettonAWallet.getJettonBalance();
 
         const swapResult = await userJettonBWallet.sendTransfer(user.getSender(), {
@@ -427,5 +451,91 @@ describe('Amm', () => {
 
         // Проверяем что получили примерно 99.7 NOT
         expect(Number(received)).toBeGreaterThanOrEqual(Number(expectedAmount) / 10 ** notDecimals);
+    });
+
+    it('should successfuly withdraw liquidity', async () => {
+        const initializeResult = await amm.sendInitialize(admin.getSender(), {
+            tokenAWallet: jettonAAmmWallet.address,
+            tokenBWallet: jettonBAmmWallet.address,
+            swapComission: 3,
+        });
+        const addLiquidityAResult = await userJettonAWallet.sendTransfer(user.getSender(), {
+            toAddress: amm.address,
+            jettonAmount: INITIAL_JETTONS_TO_DEPOSIT,
+            fwdAmount: toNano('0.25'),
+            fwdPayload: buildLpDepositPayload(),
+            value: toNano('0.5'),
+        });
+        const addLiquidityBResult = await userJettonBWallet.sendTransfer(user.getSender(), {
+            toAddress: amm.address,
+            jettonAmount: INITIAL_JETTONS_TO_DEPOSIT,
+            fwdAmount: toNano('0.25'),
+            fwdPayload: buildLpDepositPayload(),
+            value: toNano('0.5'),
+        });
+
+        const userBalanceABefore = await userJettonAWallet.getJettonBalance();
+        const userBalanceBBefore = await userJettonBWallet.getJettonBalance();
+
+        const { totalSupply, tokenA: initialTokenA, tokenB: initialTokenB } = await amm.getLpStorage();
+
+        const withdrawResult = await userLpTokensWallet.sendBurnRequest(user.getSender(), {
+            jettonAmount: totalSupply / 2n,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: user.address,
+            to: userLpTokensWallet.address,
+            success: true,
+            op: Opcodes.burn_jetton,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: userLpTokensWallet.address,
+            to: amm.address,
+            success: true,
+            op: Opcodes.burn_notification,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: amm.address,
+            to: jettonAAmmWallet.address,
+            success: true,
+            op: Opcodes.transfer_jetton,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: jettonAAmmWallet.address,
+            to: userJettonAWallet.address,
+            success: true,
+            op: Opcodes.internal_transfer,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: amm.address,
+            to: jettonBAmmWallet.address,
+            success: true,
+            op: Opcodes.transfer_jetton,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: jettonBAmmWallet.address,
+            to: userJettonBWallet.address,
+            success: true,
+            op: Opcodes.internal_transfer,
+        });
+
+        const { tokenA, tokenB, k, totalSupply: newTotalSupply } = await amm.getLpStorage();
+
+        expect(tokenA).toEqual(initialTokenA / 2n);
+        expect(tokenB).toEqual(initialTokenB / 2n);
+        expect(k).toEqual(tokenA * tokenB);
+
+        const userBalanceAAfter = await userJettonAWallet.getJettonBalance();
+        const userBalanceBAfter = await userJettonBWallet.getJettonBalance();
+
+        expect(userBalanceAAfter - userBalanceABefore).toEqual(initialTokenA / 2n);
+        expect(userBalanceBAfter - userBalanceBBefore).toEqual(initialTokenB / 2n);
+        console.log('User received after withdraw: ', fromNano(userBalanceAAfter - userBalanceABefore));
     });
 });

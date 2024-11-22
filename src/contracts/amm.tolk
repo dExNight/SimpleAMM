@@ -1,16 +1,20 @@
 import "imports/constants.tolk";
 import "imports/utils.tolk";
+import "imports/jetton_utils.tolk";
 
 global init: int;
-global lpName: cell;
 global adminAddress: slice;
 global tokenA: int;
 global tokenB: int;
 global k: int;
+global totalSupply: int;
 global tokenAWalletAddress: slice;
 global tokenBWalletAddress: slice;
 global swapComission: int;
+global lpName: cell;
 global depositHelperCode: cell;
+global jettonWalletCode: cell;
+global content: cell;
 
 
 fun saveData() {
@@ -21,15 +25,18 @@ fun saveData() {
             .storeCoins(tokenA)
             .storeCoins(tokenB)
             .storeUint(k, 256)
+            .storeCoins(totalSupply)
             .storeRef(
             beginCell()
                     .storeSlice(tokenAWalletAddress)
                     .storeSlice(tokenBWalletAddress)
                     .storeUint(swapComission, 32)
+                    .storeRef(lpName)
                 .endCell()
         )
-            .storeRef(lpName)
             .storeRef(depositHelperCode)
+            .storeRef(jettonWalletCode)
+            .storeRef(content)
         .endCell()
     );
 }
@@ -41,14 +48,17 @@ fun loadData() {
     tokenA = ds.loadCoins();
     tokenB = ds.loadCoins();
     k = ds.loadUint(256);
+    totalSupply = ds.loadCoins();
 
     var dv: slice = ds.loadRef().beginParse();
     tokenAWalletAddress = dv.loadAddress();
     tokenBWalletAddress = dv.loadAddress();
     swapComission = dv.loadUint(32); // 30 by default
+    lpName = dv.loadRef();
     
-    lpName = ds.loadRef();
     depositHelperCode = ds.loadRef();
+    jettonWalletCode = ds.loadRef();
+    content = ds.loadRef();
 }
 
 fun calculateAmountOut(amountIn: int, reserveIn: int, reserveOut: int): int {
@@ -60,7 +70,7 @@ fun calculateAmountOut(amountIn: int, reserveIn: int, reserveOut: int): int {
     );
 }
 
-fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slice): void {
+fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slice, msgValue: int): void {
     var isTokenA: int = isSliceBitsEqual(senderAddress, tokenAWalletAddress);
     var isTokenB: int = isSliceBitsEqual(senderAddress, tokenBWalletAddress);
 
@@ -69,11 +79,16 @@ fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slic
     msgBody = msgBody.loadUint(1) ? msgBody.loadRef().beginParse() : msgBody;
 
     if ((!isTokenA & !isTokenB) | (getRemainingBitsCount(msgBody) < 32) | !init) {
-        sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+        sendJettons(queryId, jettonAmount, fromUser, fromUser, senderAddress, 0, 64, 1, null);
         return;
     };
 
     var innerOp: int = msgBody.loadUint(32);
+
+    if (msgValue < minLiqudityProvisionAmount()) {
+        sendJettons(queryId, jettonAmount, fromUser, fromUser, senderAddress, 0, 64, 1, null);
+        return;
+    }
 
     if (innerOp == OP_DEPOSIT) {
         var (depositHelperAddress, stateInit) = calculateDepositHelperAddress(getMyAddress(), fromUser, depositHelperCode);
@@ -98,7 +113,7 @@ fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slic
 
     if (innerOp == OP_SWAP) {
         if ((k == 0) | (jettonAmount <= 0) | (tokenA <= 0) | (tokenB <= 0)) {
-            sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+            sendJettons(queryId, jettonAmount, fromUser, fromUser, senderAddress, 0, 64, 1, null);
             return;
         };
 
@@ -110,7 +125,7 @@ fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slic
         var minAmountOut: int = msgBody.loadCoins();
 
         if ((amountOut < minAmountOut) | (amountOut >= reserveOut)) {
-            sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+            sendJettons(queryId, jettonAmount, fromUser, fromUser, senderAddress, 0, 64, 1, null);
             return;
         };
 
@@ -127,7 +142,7 @@ fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slic
             queryId, 
             amountOut,
             fromUser,
-            null,
+            fromUser,
             isTokenA ? tokenBWalletAddress: tokenAWalletAddress,
             0,
             64,
@@ -144,7 +159,7 @@ fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slic
         return;
     }
 
-    sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+    sendJettons(queryId, jettonAmount, fromUser, fromUser, senderAddress, 0, 64, 1, null);
     return;
 }
 
@@ -160,10 +175,16 @@ fun handleLiquidityProvision(queryId: int, senderAddress: slice, msgBody: slice)
         tokenA = providedTokenA;
         tokenB = providedTokenB;
         k = tokenA * tokenB;
+
+        totalSupply = sqrt(k);
+        mintLpTokens(queryId, totalSupply, fromUser, getMyAddress(), jettonWalletCode);
     } else {
         var pairFraction: int = mulDivFloor(tokenA, DIVIDER, tokenB);
         var userPairFraction: int = mulDivFloor(providedTokenA, DIVIDER, providedTokenB);
 
+        var shareA = mulDivFloor(providedTokenA, totalSupply, tokenA);
+        var shareB = mulDivFloor(providedTokenB, totalSupply, tokenB);
+            
         if (pairFraction == userPairFraction) {
             tokenA += providedTokenA;
             tokenB += providedTokenB;
@@ -174,8 +195,10 @@ fun handleLiquidityProvision(queryId: int, senderAddress: slice, msgBody: slice)
             
             tokenA += providedTokenA;
             tokenB += correctTokenB;
-            
-            sendJettons(queryId, excessTokenB, fromUser, null, tokenBWalletAddress, 0, 64, 0, null);
+            // return excesses
+            sendJettons(queryId, excessTokenB, fromUser, fromUser, tokenBWalletAddress, 0, 0, 0, null);
+
+            shareB = mulDivFloor(correctTokenB, totalSupply, tokenB);
         } else {
             // User provided too much amount of TokenA
             var correctTokenA: int = mulDivFloor(providedTokenB, tokenA, tokenB);
@@ -183,13 +206,54 @@ fun handleLiquidityProvision(queryId: int, senderAddress: slice, msgBody: slice)
             
             tokenA += correctTokenA;
             tokenB += providedTokenB;
-            
-            sendJettons(queryId, excessTokenA, fromUser, null, tokenAWalletAddress, 0, 64, 0, null);
+            // return excesses
+            sendJettons(queryId, excessTokenA, fromUser, fromUser, tokenAWalletAddress, 0, 0, 0, null);
+
+            var shareA = mulDivFloor(correctTokenA, totalSupply, tokenA);
         }
 
         k = tokenA * tokenB;
-        // TODO: mint LP tokens
+        // mint LP tokens
+        var lpTokensToMint: int = min(shareA, shareB);
+        mintLpTokens(queryId, lpTokensToMint, fromUser, getMyAddress(), jettonWalletCode);
+        totalSupply += lpTokensToMint;
     }
+}
+
+fun handleBurnNotification(queryId: int, senderAddress: slice, msgBody: slice): void {
+    var lpAmount: int = msgBody.loadCoins();
+    var fromAddress: slice = msgBody.loadAddress();
+    var responseAddress: slice = msgBody.loadAddress();
+
+    assert(lpAmount > 0, EXC_ZERO_LP_AMOUNT);
+    assert(lpAmount <= totalSupply, EXC_LP_EXCEEDS_SUPPLY);
+
+    var (jettonWalletAddress, _) = calculateUserJettonWalletAddress(fromAddress, getMyAddress(), jettonWalletCode);
+    assert(isSliceBitsEqual(jettonWalletAddress, senderAddress), EXC_INVALID_SENDER);
+
+    // Compute amount of LP tokens to burn
+    var tokenAAmount = mulDivFloor(lpAmount, tokenA, totalSupply);
+    var tokenBAmount = mulDivFloor(lpAmount, tokenB, totalSupply);
+    
+    tokenA -= tokenAAmount;
+    tokenB -= tokenBAmount;
+    totalSupply -= lpAmount;
+    k = tokenA * tokenB;
+    
+    sendJettons(queryId, tokenAAmount, fromAddress, fromAddress, tokenAWalletAddress, jettonTransferAmount(), 0, 1, null);
+    sendJettons(queryId, tokenBAmount, fromAddress, fromAddress, tokenBWalletAddress, jettonTransferAmount(), 0, 1, null);
+
+    responseAddress = (responseAddress == null) ? fromAddress : responseAddress;
+    var msg: cell = beginCell()
+            .storeUint(0x18, 6)
+            .storeSlice(responseAddress)
+            .storeCoins(0)
+            .storeUint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+            .storeUint(OP_EXCESSES, 32)
+            .storeUint(queryId, 64)
+        .endCell();
+
+    sendRawMessage(msg, 64 + 2);
 }
 
 
@@ -212,7 +276,16 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
     loadData();
 
     if (op == OP_TRANSFER_NOTIFICATION) {
-        handleTransferNotification(queryId, senderAddress, msgBody);
+        handleTransferNotification(queryId, senderAddress, msgBody, msgValue);
+        return;
+    }
+
+    if (op == OP_BURN_NOTIFICATION) {
+        if (!init) {
+            return;
+        }
+        handleBurnNotification(queryId, senderAddress, msgBody);
+        saveData();
         return;
     }
 
@@ -248,9 +321,9 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
 }
 
 
-get lp_storage(): (int, slice, int, int, int, slice, slice, cell) {
+get lp_storage(): (int, slice, int, int, int, int, slice, slice, int, cell, cell, cell, cell) {
     loadData();
-    return (init, adminAddress, tokenA, tokenB, k, tokenAWalletAddress, tokenBWalletAddress, lpName);
+    return (init, adminAddress, tokenA, tokenB, k, totalSupply, tokenAWalletAddress, tokenBWalletAddress, swapComission, lpName, depositHelperCode, jettonWalletCode, content);
 }
 
 get get_helper_address(user_address: slice): slice {
@@ -272,5 +345,29 @@ get expected_amount_out(amountIn: int, isTokenA: int): int {
 
 get price_impact(amountIn: int, isTokenA: int): (int, int) {
     loadData();
-    // TODO
+    var PERCENTAGE_DIVIDER: int = 10000; 
+    
+    var (reserveIn, reserveOut) = isTokenA ? (tokenA, tokenB) : (tokenB, tokenA);
+    
+    var amountOut = calculateAmountOut(amountIn, reserveIn, reserveOut);
+    
+    var spotPrice = mulDivFloor(PERCENTAGE_DIVIDER, reserveOut, reserveIn);
+    
+    var executionPrice = mulDivFloor(PERCENTAGE_DIVIDER, amountOut, amountIn);
+    
+    var priceRatio = mulDivFloor(executionPrice, PERCENTAGE_DIVIDER, spotPrice);
+    var impact = PERCENTAGE_DIVIDER - priceRatio;
+    
+    return (impact, PERCENTAGE_DIVIDER);
+}
+
+get get_jetton_data(): (int, int, slice, cell, cell) {
+    loadData();
+    return (totalSupply, -1, adminAddress, content, jettonWalletCode);
+}
+
+get get_wallet_address(ownerAddress: slice): slice {
+    loadData();
+    var (jettonWalletAddress, _) = calculateUserJettonWalletAddress(ownerAddress, getMyAddress(), jettonWalletCode);
+    return jettonWalletAddress;
 }
