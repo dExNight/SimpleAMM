@@ -116,7 +116,7 @@ fun receiveTokens(inMsgBody: slice, senderAddress: slice, myTonBalance: int, fwd
 
         msg = beginCell()
             .storeUint(0x10, 6)
-            .storeSlice(jettonMasterAddress)
+            .storeSlice(ownerAddress)
             .storeCoins(msgValue)
             .storeUint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
             .storeUint(OP_EXCESSES, 32)

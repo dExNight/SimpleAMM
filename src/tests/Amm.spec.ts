@@ -34,6 +34,7 @@ describe('Amm', () => {
     let jettonBAmmWallet: SandboxContract<JettonWallet>;
     let userJettonAWallet: SandboxContract<JettonWallet>;
     let userJettonBWallet: SandboxContract<JettonWallet>;
+    let userLpTokensWallet: SandboxContract<JettonWallet>;
 
     beforeEach(async () => {
         blockchain = await Blockchain.create();
@@ -77,7 +78,7 @@ describe('Amm', () => {
                     adminAddress: admin.address,
                     lpName: LpName,
                     depositHelperCode: await compile('DepositHelper'),
-                    jettonWalletCode: await compile('DepositHelper'),
+                    jettonWalletCode: await compile('LpWallet'),
                     content: beginCell().endCell(),
                 },
                 code,
@@ -108,6 +109,10 @@ describe('Amm', () => {
         userDepositHelper = blockchain.openContract(
             DepositHelper.createFromAddress(await amm.getHelperAddresss(user.address)),
         );
+
+        userLpTokensWallet = blockchain.openContract(
+            JettonWallet.createFromAddress(await amm.getWalletAddresss(user.address)),
+        );
     });
 
     it('should deploy', async () => {
@@ -134,7 +139,7 @@ describe('Amm', () => {
         expect(tokenBWalletAddress).toEqualAddress(jettonBAmmWallet.address);
     });
 
-    it('should successfuly provide liquidity', async () => {
+    it('should successfuly provide liquidity & mint lp tokens', async () => {
         const initializeResult = await amm.sendInitialize(admin.getSender(), {
             tokenAWallet: jettonAAmmWallet.address,
             tokenBWallet: jettonBAmmWallet.address,
@@ -195,11 +200,22 @@ describe('Amm', () => {
             op: Opcodes.OP_LIQUDITY_PROVIDED,
         });
 
-        const { tokenA, tokenB, k } = await amm.getLpStorage();
+        expect(addLiquidityBResult.transactions).toHaveTransaction({
+            from: amm.address,
+            to: userLpTokensWallet.address,
+            success: true,
+            op: Opcodes.internal_transfer,
+        });
+
+        const { tokenA, tokenB, k, totalSupply } = await amm.getLpStorage();
         const expectedK: bigint = INITIAL_JETTONS_TO_DEPOSIT * INITIAL_JETTONS_TO_DEPOSIT;
         expect(tokenA).toEqual(INITIAL_JETTONS_TO_DEPOSIT);
         expect(tokenB).toEqual(INITIAL_JETTONS_TO_DEPOSIT);
         expect(k).toEqual(expectedK);
+        expect(Number(totalSupply)).toBeCloseTo(Math.sqrt(Number(k)));
+
+        const userLpBalance = await userLpTokensWallet.getJettonBalance();
+        expect(userLpBalance).toEqual(totalSupply);
     });
 
     it('should successfuly provide liquidity 2', async () => {

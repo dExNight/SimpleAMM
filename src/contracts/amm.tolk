@@ -172,11 +172,14 @@ fun handleLiquidityProvision(queryId: int, senderAddress: slice, msgBody: slice)
         k = tokenA * tokenB;
 
         totalSupply = sqrt(k);
-        mintInitialLpTokens(queryId, totalSupply, fromUser, getMyAddress(), jettonWalletCode);
+        mintLpTokens(queryId, totalSupply, fromUser, getMyAddress(), jettonWalletCode);
     } else {
         var pairFraction: int = mulDivFloor(tokenA, DIVIDER, tokenB);
         var userPairFraction: int = mulDivFloor(providedTokenA, DIVIDER, providedTokenB);
 
+        var shareA = mulDivFloor(providedTokenA, totalSupply, tokenA);
+        var shareB = mulDivFloor(providedTokenB, totalSupply, tokenB);
+            
         if (pairFraction == userPairFraction) {
             tokenA += providedTokenA;
             tokenB += providedTokenB;
@@ -187,8 +190,10 @@ fun handleLiquidityProvision(queryId: int, senderAddress: slice, msgBody: slice)
             
             tokenA += providedTokenA;
             tokenB += correctTokenB;
-            
-            sendJettons(queryId, excessTokenB, fromUser, null, tokenBWalletAddress, 0, 64, 0, null);
+            // return excesses
+            sendJettons(queryId, excessTokenB, fromUser, null, tokenBWalletAddress, 0, 0, 0, null);
+
+            shareB = mulDivFloor(correctTokenB, totalSupply, tokenB);
         } else {
             // User provided too much amount of TokenA
             var correctTokenA: int = mulDivFloor(providedTokenB, tokenA, tokenB);
@@ -196,12 +201,17 @@ fun handleLiquidityProvision(queryId: int, senderAddress: slice, msgBody: slice)
             
             tokenA += correctTokenA;
             tokenB += providedTokenB;
-            
-            sendJettons(queryId, excessTokenA, fromUser, null, tokenAWalletAddress, 0, 64, 0, null);
+            // return excesses
+            sendJettons(queryId, excessTokenA, fromUser, null, tokenAWalletAddress, 0, 0, 0, null);
+
+            var shareA = mulDivFloor(correctTokenA, totalSupply, tokenA);
         }
 
         k = tokenA * tokenB;
-        // TODO: mint LP tokens
+        // mint LP tokens
+        var lpTokensToMint: int = min(shareA, shareB);
+        mintLpTokens(queryId, lpTokensToMint, fromUser, getMyAddress(), jettonWalletCode);
+        totalSupply += lpTokensToMint;
     }
 }
 
@@ -261,9 +271,9 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
 }
 
 
-get lp_storage(): (int, slice, int, int, int, slice, slice, cell) {
+get lp_storage(): (int, slice, int, int, int, int, slice, slice, int, cell, cell, cell, cell) {
     loadData();
-    return (init, adminAddress, tokenA, tokenB, k, tokenAWalletAddress, tokenBWalletAddress, lpName);
+    return (init, adminAddress, tokenA, tokenB, k, totalSupply, tokenAWalletAddress, tokenBWalletAddress, swapComission, lpName, depositHelperCode, jettonWalletCode, content);
 }
 
 get get_helper_address(user_address: slice): slice {

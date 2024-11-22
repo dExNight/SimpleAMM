@@ -97,9 +97,14 @@ export class Amm implements Contract {
             tokenA: result.readBigNumber(),
             tokenB: result.readBigNumber(),
             k: result.readBigNumber(),
+            totalSupply: result.readBigNumber(),
             tokenAWalletAddress: result.readAddressOpt(),
             tokenBWalletAddress: result.readAddressOpt(),
+            swapComission: result.readNumber(),
             lpName: result.readString(),
+            depositHelperCode: result.readCell(),
+            jettonWalletCode: result.readCell(),
+            content: result.readCell(),
         };
     }
 
@@ -140,5 +145,25 @@ export class Amm implements Contract {
         const numerator: number = Number(result.readBigNumber());
         const denominator: number = Number(result.readBigNumber());
         return numerator / denominator;
+    }
+
+    async getJettonData(provider: ContractProvider) {
+        const result = (await provider.get('get_jetton_data', [])).stack;
+
+        return {
+            totalSupply: result.readBigNumber(),
+            isMintable: result.readBoolean(),
+            adminAddress: result.readAddress(),
+            content: result.readCell(),
+            jettonWalletCode: result.readCell(),
+        };
+    }
+
+    async getWalletAddresss(provider: ContractProvider, userAddress: Address) {
+        const params = new TupleBuilder();
+        params.writeAddress(userAddress);
+        const result = (await provider.get('get_wallet_address', params.build())).stack;
+
+        return result.readAddress();
     }
 }

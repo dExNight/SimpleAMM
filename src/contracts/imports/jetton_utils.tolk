@@ -22,7 +22,7 @@ fun calculateUserJettonWalletAddress(ownerAddress: slice, jettonMasterAddress: s
     return (calculateAddress(stateInit), stateInit);
 }
 
-fun mintInitialLpTokens(queryId: int, initialLpAmount: int, userAddress: slice, jettonMasterAddress: slice, jettonWalletCode: cell): void {
+fun mintLpTokens(queryId: int, initialLpAmount: int, userAddress: slice, jettonMasterAddress: slice, jettonWalletCode: cell): void {
     var (jettonWalletAddress, stateInit) = calculateUserJettonWalletAddress(userAddress, jettonMasterAddress, jettonWalletCode);
 
     var msg: cell = beginCell()
