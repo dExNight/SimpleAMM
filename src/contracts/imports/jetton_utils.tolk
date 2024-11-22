@@ -1,6 +1,15 @@
 import "constants.tolk";
 import "utils.tolk";
 
+fun packJettonWalletData(balance: int, ownerAddress: slice, jettonMasterAddress: slice, jettonWalletCode: cell): cell {
+    return beginCell()
+                .storeCoins(balance)
+                .storeSlice(ownerAddress)
+                .storeSlice(jettonMasterAddress)
+                .storeRef(jettonWalletCode)
+            .endCell();
+}
+
 fun calculateUserJettonWalletAddress(ownerAddress: slice, jettonMasterAddress: slice, jettonWalletCode: cell): (slice, cell) {
     var data: cell = beginCell()
                 .storeCoins(0)

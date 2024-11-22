@@ -1,7 +1,7 @@
 // Lp Wallet Smart Contract
-import "jetton-utils.tolk"
-import "op-codes.tolk"
-import "params.tolk"
+import "imports/jetton_utils.tolk"
+import "imports/constants.tolk"
+import "imports/utils.tolk"
 
 @pure
 fun minTonsForStorage(): int
@@ -41,17 +41,15 @@ fun sendTokens(inMsgBody: slice, senderAddress: slice, msgValue: int, fwdFee: in
     
     balance -= jettonAmount;
 
-    assert(equalSlices(ownerAddress, senderAddress)) throw 705;
-    assert(balance >= 0) throw 706;
-
-    var stateInit: cell = calculateJettonWalletStateInit(toOwnerAddress, jettonMasterAddress, jettonWalletCode);
-    var toWalletAddress: slice = calculateJettonWalletAddress(stateInit);
+    assert(isSliceBitsEqual(ownerAddress, senderAddress), 705);
+    assert(balance >= 0, 706);
+    var (toWalletAddress, stateInit) = calculateUserJettonWalletAddress(toOwnerAddress, jettonMasterAddress, jettonWalletCode);
 
     var responseAddress: slice = inMsgBody.loadAddress();
     var customPayload: cell = inMsgBody.loadDict();
     var forwardTonAmount: int = inMsgBody.loadCoins();
 
-    assert(getRemainingBitsCount(inMsgBody) >= 1) throw 708;
+    assert(getRemainingBitsCount(inMsgBody) >= 1, 708);
     var eitherForwardPayload: slice = inMsgBody;
 
     var msg = beginCell()
@@ -62,7 +60,7 @@ fun sendTokens(inMsgBody: slice, senderAddress: slice, msgValue: int, fwdFee: in
         .storeRef(stateInit);
 
     var msgBody = beginCell()
-        .storeUint(`op::internal_transfer`(), 32)
+        .storeUint(OP_INTERNAL_TRANSFER, 32)
         .storeUint(queryId, 64)
         .storeCoins(jettonAmount)
         .storeSlice(ownerAddress)
@@ -74,7 +72,7 @@ fun sendTokens(inMsgBody: slice, senderAddress: slice, msgValue: int, fwdFee: in
     
     var fwdCount: int = forwardTonAmount ? 2 : 1;
 
-    assert(msgValue > forwardTonAmount + fwdCount * fwdFee + (2 * gasConsumption() + minTonsForStorage())) throw 709;
+    assert(msgValue > forwardTonAmount + fwdCount * fwdFee + (2 * gasConsumption() + minTonsForStorage()), 709);
 
     sendRawMessage(msg.endCell(), 64); // revert on errors and Carry all the remaining value of the inbound message in addition to the value initially indicated in the new message
     saveData(balance, ownerAddress, jettonMasterAddress, jettonWalletCode);
@@ -90,7 +88,7 @@ fun receiveTokens(inMsgBody: slice, senderAddress: slice, myTonBalance: int, fwd
 
     var tonBalanceBeforeMsg: int = myTonBalance - msgValue;
 
-    if (equalSlices(jettonMasterAddress, senderAddress)){
+    if (isSliceBitsEqual(jettonMasterAddress, senderAddress)){
 
         var storageFee: int = minTonsForStorage() - min(tonBalanceBeforeMsg, minTonsForStorage());
 
@@ -100,7 +98,7 @@ fun receiveTokens(inMsgBody: slice, senderAddress: slice, myTonBalance: int, fwd
 
         var eitherForwardPayload: slice = inMsgBody;
         var msgBody = beginCell()
-            .storeUint(`op::transfer_notification`(), 32)
+            .storeUint(OP_TRANSFER_NOTIFICATION, 32)
             .storeUint(queryId, 64)
             .storeCoins(jettonAmount)
             .storeSlice(jettonMasterAddress)
@@ -121,7 +119,7 @@ fun receiveTokens(inMsgBody: slice, senderAddress: slice, myTonBalance: int, fwd
             .storeSlice(jettonMasterAddress)
             .storeCoins(msgValue)
             .storeUint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
-            .storeUint(`op::excesses`(), 32)
+            .storeUint(OP_EXCESSES, 32)
             .storeUint(queryId, 64);
         sendRawMessage(msg.endCell(), 2);
 
@@ -133,7 +131,8 @@ fun receiveTokens(inMsgBody: slice, senderAddress: slice, myTonBalance: int, fwd
     var fromAddress: slice = inMsgBody.loadAddress();
     var responseAddress: slice = inMsgBody.loadAddress();
 
-    assert(equalSlices(calculateUserJettonWalletAddress(fromAddress, jettonMasterAddress, jettonWalletCode), senderAddress)) throw 707;
+    var (toWalletAddress, _) = calculateUserJettonWalletAddress(fromAddress, jettonMasterAddress, jettonWalletCode);
+    assert(isSliceBitsEqual(toWalletAddress, senderAddress), 707);
 
     var forwardTonAmount: int = inMsgBody.loadCoins();
 
@@ -145,7 +144,7 @@ fun receiveTokens(inMsgBody: slice, senderAddress: slice, myTonBalance: int, fwd
         var eitherForwardPayload: slice = inMsgBody;
 
         var msgBody = beginCell()
-            .storeUint(`op::transfer_notification`(), 32)
+            .storeUint(OP_TRANSFER_NOTIFICATION, 32)
             .storeUint(queryId, 64)
             .storeCoins(jettonAmount)
             .storeSlice(fromAddress)
@@ -168,7 +167,7 @@ fun receiveTokens(inMsgBody: slice, senderAddress: slice, myTonBalance: int, fwd
             .storeSlice(responseAddress)
             .storeCoins(msgValue)
             .storeUint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
-            .storeUint(`op::excesses`(), 32)
+            .storeUint(OP_EXCESSES, 32)
             .storeUint(queryId, 64);
         sendRawMessage(msg.endCell(), 2);
     }
@@ -185,12 +184,12 @@ fun burnTokens(inMsgBody: slice, senderAddress: slice, msgValue: int, fwdFee: in
 
     balance -= jettonAmount;
 
-    assert(equalSlices(ownerAddress, senderAddress)) throw 705;
-    assert(balance >= 0) throw 706;
-    assert(msgValue > fwdFee + 2 * gasConsumption()) throw 707;
+    assert(isSliceBitsEqual(ownerAddress, senderAddress), 705);
+    assert(balance >= 0, 706);
+    assert(msgValue > fwdFee + 2 * gasConsumption(), 707);
 
     var msgBody = beginCell()
-      .storeUint(`op::burn_notification`(), 32)
+      .storeUint(OP_BURN_NOTIFICATION, 32)
       .storeUint(queryId, 64)
       .storeCoins(jettonAmount)
       .storeSlice(ownerAddress)
@@ -214,7 +213,7 @@ fun onBounce(inMsgBody: slice) {
     var (balance: int, ownerAddress: slice, jettonMasterAddress: slice, jettonWalletCode: cell) = loadData();
 
     var op: int = inMsgBody.loadUint(32);
-    assert((op == `op::internal_transfer`()) | (op == `op::burn_notification`())) throw 709;
+    assert((op == OP_INTERNAL_TRANSFER) | (op == OP_BURN_NOTIFICATION), 709);
 
     var queryId: int = inMsgBody.loadUint(64);
     var jettonAmount: int = inMsgBody.loadCoins();
@@ -245,17 +244,17 @@ fun onInternalMessage(myBalance: int, msgValue: int, inMsgFull: cell, inMsgBody:
 
     var op: int = inMsgBody.loadUint(32);
 
-    if (op == `op::transfer`()) {
+    if (op == OP_TRANSFER_JETTON) {
         sendTokens(inMsgBody, senderAddress, msgValue, fwdFee);
         return;
     }
 
-    if (op == `op::internal_transfer`()) {
+    if (op == OP_INTERNAL_TRANSFER) {
         receiveTokens(inMsgBody, senderAddress, myBalance, fwdFee, msgValue);
         return;
     }
 
-    if (op == `op::burn`()) {
+    if (op == OP_BURN_JETTON) {
         burnTokens(inMsgBody, senderAddress, msgValue, fwdFee);
         return;
     }

@@ -8,6 +8,9 @@ const OP_UPDATE_COMMISSION: int = 204;
 const OP_TRANSFER_JETTON: int = 0xf8a7ea5;
 const OP_INTERNAL_TRANSFER: int = 0x178d4519;
 const OP_TRANSFER_NOTIFICATION: int = 0x7362d09c;
+const OP_BURN_JETTON: int = 0x595f07bc;
+const OP_BURN_NOTIFICATION: int = 0x7bdd97de;
+const OP_EXCESSES: int = 0xd53276db;
 
 const EXC_NOT_ADMIN: int = 101;
 const EXC_INVALID_SENDER: int = 102;
