@@ -186,7 +186,7 @@ fun burnTokens(inMsgBody: slice, senderAddress: slice, msgValue: int, fwdFee: in
 
     assert(isSliceBitsEqual(ownerAddress, senderAddress), 705);
     assert(balance >= 0, 706);
-    assert(msgValue > fwdFee + 2 * gasConsumption(), 707);
+    assert(msgValue > minJettonBurnAmount(), 707);
 
     var msgBody = beginCell()
       .storeUint(OP_BURN_NOTIFICATION, 32)

@@ -18,6 +18,24 @@ const EXC_ALREADY_INITIALIZED: int = 103;
 const EXC_INSUFFICIENT_RESERVE: int = 104;
 const EXC_K_DECREASED: int = 105;
 const EXC_INVALID_COMMISSION: int = 106;
+const EXC_ZERO_LP_AMOUNT: int = 107;
+const EXC_LP_EXCEEDS_SUPPLY: int = 108;
 
 const SWAP_COMISSION_DENOMINATOR: int = 1000;
 const DIVIDER: int = 100000000000000000000000000000000000000;
+
+@pure
+fun workchain(): int
+    asm "0 PUSHINT";
+
+@pure
+fun minJettonBurnAmount(): int
+    asm "500000000 PUSHINT";
+
+@pure
+fun minLiqudityProvisionAmount(): int
+    asm "250000000 PUSHINT";
+
+@pure
+fun jettonTransferAmount(): int
+    asm "100000000 PUSHINT";

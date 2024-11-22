@@ -446,4 +446,90 @@ describe('Amm', () => {
         // Проверяем что получили примерно 99.7 NOT
         expect(Number(received)).toBeGreaterThanOrEqual(Number(expectedAmount) / 10 ** notDecimals);
     });
+
+    it('should successfuly withdraw liquidity', async () => {
+        const initializeResult = await amm.sendInitialize(admin.getSender(), {
+            tokenAWallet: jettonAAmmWallet.address,
+            tokenBWallet: jettonBAmmWallet.address,
+            swapComission: 3,
+        });
+        const addLiquidityAResult = await userJettonAWallet.sendTransfer(user.getSender(), {
+            toAddress: amm.address,
+            jettonAmount: INITIAL_JETTONS_TO_DEPOSIT,
+            fwdAmount: toNano('0.25'),
+            fwdPayload: buildLpDepositPayload(),
+            value: toNano('0.5'),
+        });
+        const addLiquidityBResult = await userJettonBWallet.sendTransfer(user.getSender(), {
+            toAddress: amm.address,
+            jettonAmount: INITIAL_JETTONS_TO_DEPOSIT,
+            fwdAmount: toNano('0.25'),
+            fwdPayload: buildLpDepositPayload(),
+            value: toNano('0.5'),
+        });
+
+        const userBalanceABefore = await userJettonAWallet.getJettonBalance();
+        const userBalanceBBefore = await userJettonBWallet.getJettonBalance();
+
+        const { totalSupply, tokenA: initialTokenA, tokenB: initialTokenB } = await amm.getLpStorage();
+
+        const withdrawResult = await userLpTokensWallet.sendBurnRequest(user.getSender(), {
+            jettonAmount: totalSupply / 2n,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: user.address,
+            to: userLpTokensWallet.address,
+            success: true,
+            op: Opcodes.burn_jetton,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: userLpTokensWallet.address,
+            to: amm.address,
+            success: true,
+            op: Opcodes.burn_notification,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: amm.address,
+            to: jettonAAmmWallet.address,
+            success: true,
+            op: Opcodes.transfer_jetton,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: jettonAAmmWallet.address,
+            to: userJettonAWallet.address,
+            success: true,
+            op: Opcodes.internal_transfer,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: amm.address,
+            to: jettonBAmmWallet.address,
+            success: true,
+            op: Opcodes.transfer_jetton,
+        });
+
+        expect(withdrawResult.transactions).toHaveTransaction({
+            from: jettonBAmmWallet.address,
+            to: userJettonBWallet.address,
+            success: true,
+            op: Opcodes.internal_transfer,
+        });
+
+        const { tokenA, tokenB, k, totalSupply: newTotalSupply } = await amm.getLpStorage();
+
+        expect(tokenA).toEqual(initialTokenA / 2n);
+        expect(tokenB).toEqual(initialTokenB / 2n);
+        expect(k).toEqual(tokenA * tokenB);
+
+        const userBalanceAAfter = await userJettonAWallet.getJettonBalance();
+        const userBalanceBAfter = await userJettonBWallet.getJettonBalance();
+
+        expect(userBalanceAAfter - userBalanceABefore).toEqual(initialTokenA / 2n);
+        expect(userBalanceBAfter - userBalanceBBefore).toEqual(initialTokenB / 2n);
+        console.log('User received after withdraw: ', fromNano(userBalanceAAfter - userBalanceABefore));
+    });
 });

@@ -1,5 +1,16 @@
-import { Address, beginCell, Cell, Contract, contractAddress, ContractProvider, Sender, SendMode } from '@ton/core';
+import {
+    Address,
+    beginCell,
+    Cell,
+    Contract,
+    contractAddress,
+    ContractProvider,
+    Sender,
+    SendMode,
+    toNano,
+} from '@ton/core';
 import walletData from '../build/JettonWallet.compiled.json';
+import { Gas, Opcodes } from './constants';
 
 export type JettonWalletConfig = {};
 
@@ -49,7 +60,7 @@ export class JettonWallet implements Contract {
             value: opts.value,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
             body: beginCell()
-                .storeUint(0xf8a7ea5, 32)
+                .storeUint(Opcodes.transfer_jetton, 32)
                 .storeUint(opts.queryId ?? 0, 64)
                 .storeCoins(opts.jettonAmount)
                 .storeAddress(opts.toAddress)
@@ -62,8 +73,40 @@ export class JettonWallet implements Contract {
         });
     }
 
+    async sendBurnRequest(
+        provider: ContractProvider,
+        via: Sender,
+        opts: {
+            jettonAmount: bigint;
+            queryId?: number;
+        },
+    ) {
+        await provider.internal(via, {
+            value: Gas.burn_lp + toNano(0.1),
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell()
+                .storeUint(Opcodes.burn_jetton, 32)
+                .storeUint(opts.queryId ?? 0, 64)
+                .storeCoins(opts.jettonAmount)
+                .storeAddress(via.address)
+                .storeUint(0, 1)
+                .endCell(),
+        });
+    }
+
     async getJettonBalance(provider: ContractProvider): Promise<bigint> {
         const result = (await provider.get('get_wallet_data', [])).stack;
         return result.readBigNumber();
+    }
+
+    async getWalletData(provider: ContractProvider) {
+        const { stack } = await provider.get('get_wallet_data', []);
+
+        return {
+            jettonBalance: stack.readNumber(),
+            ownerAddress: stack.readAddress(),
+            jettonMasterAddress: stack.readAddress(),
+            jettonWalletCode: stack.readCell(),
+        };
     }
 }

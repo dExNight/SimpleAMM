@@ -94,10 +94,6 @@ fun sendJettons(queryId: int, jettonAmount: int, toAddress: slice, responseAddre
     sendRawMessage(msg, sendingMode);  
 }
 
-@pure
-fun workchain(): int
-    asm "0 PUSHINT";
-
 fun forceChain(address: slice): void {
     var (wc, _) = parseStandardAddress(address);
     assert(wc == workchain(), 333);

@@ -70,7 +70,7 @@ fun calculateAmountOut(amountIn: int, reserveIn: int, reserveOut: int): int {
     );
 }
 
-fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slice): void {
+fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slice, msgValue: int): void {
     var isTokenA: int = isSliceBitsEqual(senderAddress, tokenAWalletAddress);
     var isTokenB: int = isSliceBitsEqual(senderAddress, tokenBWalletAddress);
 
@@ -79,11 +79,16 @@ fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slic
     msgBody = msgBody.loadUint(1) ? msgBody.loadRef().beginParse() : msgBody;
 
     if ((!isTokenA & !isTokenB) | (getRemainingBitsCount(msgBody) < 32) | !init) {
-        sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+        sendJettons(queryId, jettonAmount, fromUser, fromUser, senderAddress, 0, 64, 1, null);
         return;
     };
 
     var innerOp: int = msgBody.loadUint(32);
+
+    if (msgValue < minLiqudityProvisionAmount()) {
+        sendJettons(queryId, jettonAmount, fromUser, fromUser, senderAddress, 0, 64, 1, null);
+        return;
+    }
 
     if (innerOp == OP_DEPOSIT) {
         var (depositHelperAddress, stateInit) = calculateDepositHelperAddress(getMyAddress(), fromUser, depositHelperCode);
@@ -108,7 +113,7 @@ fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slic
 
     if (innerOp == OP_SWAP) {
         if ((k == 0) | (jettonAmount <= 0) | (tokenA <= 0) | (tokenB <= 0)) {
-            sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+            sendJettons(queryId, jettonAmount, fromUser, fromUser, senderAddress, 0, 64, 1, null);
             return;
         };
 
@@ -120,7 +125,7 @@ fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slic
         var minAmountOut: int = msgBody.loadCoins();
 
         if ((amountOut < minAmountOut) | (amountOut >= reserveOut)) {
-            sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+            sendJettons(queryId, jettonAmount, fromUser, fromUser, senderAddress, 0, 64, 1, null);
             return;
         };
 
@@ -137,7 +142,7 @@ fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slic
             queryId, 
             amountOut,
             fromUser,
-            null,
+            fromUser,
             isTokenA ? tokenBWalletAddress: tokenAWalletAddress,
             0,
             64,
@@ -154,7 +159,7 @@ fun handleTransferNotification(queryId: int, senderAddress: slice, msgBody: slic
         return;
     }
 
-    sendJettons(queryId, jettonAmount, fromUser, null, senderAddress, 0, 64, 1, null);
+    sendJettons(queryId, jettonAmount, fromUser, fromUser, senderAddress, 0, 64, 1, null);
     return;
 }
 
@@ -191,7 +196,7 @@ fun handleLiquidityProvision(queryId: int, senderAddress: slice, msgBody: slice)
             tokenA += providedTokenA;
             tokenB += correctTokenB;
             // return excesses
-            sendJettons(queryId, excessTokenB, fromUser, null, tokenBWalletAddress, 0, 0, 0, null);
+            sendJettons(queryId, excessTokenB, fromUser, fromUser, tokenBWalletAddress, 0, 0, 0, null);
 
             shareB = mulDivFloor(correctTokenB, totalSupply, tokenB);
         } else {
@@ -202,7 +207,7 @@ fun handleLiquidityProvision(queryId: int, senderAddress: slice, msgBody: slice)
             tokenA += correctTokenA;
             tokenB += providedTokenB;
             // return excesses
-            sendJettons(queryId, excessTokenA, fromUser, null, tokenAWalletAddress, 0, 0, 0, null);
+            sendJettons(queryId, excessTokenA, fromUser, fromUser, tokenAWalletAddress, 0, 0, 0, null);
 
             var shareA = mulDivFloor(correctTokenA, totalSupply, tokenA);
         }
@@ -213,6 +218,42 @@ fun handleLiquidityProvision(queryId: int, senderAddress: slice, msgBody: slice)
         mintLpTokens(queryId, lpTokensToMint, fromUser, getMyAddress(), jettonWalletCode);
         totalSupply += lpTokensToMint;
     }
+}
+
+fun handleBurnNotification(queryId: int, senderAddress: slice, msgBody: slice): void {
+    var lpAmount: int = msgBody.loadCoins();
+    var fromAddress: slice = msgBody.loadAddress();
+    var responseAddress: slice = msgBody.loadAddress();
+
+    assert(lpAmount > 0, EXC_ZERO_LP_AMOUNT);
+    assert(lpAmount <= totalSupply, EXC_LP_EXCEEDS_SUPPLY);
+
+    var (jettonWalletAddress, _) = calculateUserJettonWalletAddress(fromAddress, getMyAddress(), jettonWalletCode);
+    assert(isSliceBitsEqual(jettonWalletAddress, senderAddress), EXC_INVALID_SENDER);
+
+    // Compute amount of LP tokens to burn
+    var tokenAAmount = mulDivFloor(lpAmount, tokenA, totalSupply);
+    var tokenBAmount = mulDivFloor(lpAmount, tokenB, totalSupply);
+    
+    tokenA -= tokenAAmount;
+    tokenB -= tokenBAmount;
+    totalSupply -= lpAmount;
+    k = tokenA * tokenB;
+    
+    sendJettons(queryId, tokenAAmount, fromAddress, fromAddress, tokenAWalletAddress, jettonTransferAmount(), 0, 1, null);
+    sendJettons(queryId, tokenBAmount, fromAddress, fromAddress, tokenBWalletAddress, jettonTransferAmount(), 0, 1, null);
+
+    responseAddress = (responseAddress == null) ? fromAddress : responseAddress;
+    var msg: cell = beginCell()
+            .storeUint(0x18, 6)
+            .storeSlice(responseAddress)
+            .storeCoins(0)
+            .storeUint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+            .storeUint(OP_EXCESSES, 32)
+            .storeUint(queryId, 64)
+        .endCell();
+
+    sendRawMessage(msg, 64 + 2);
 }
 
 
@@ -235,7 +276,16 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
     loadData();
 
     if (op == OP_TRANSFER_NOTIFICATION) {
-        handleTransferNotification(queryId, senderAddress, msgBody);
+        handleTransferNotification(queryId, senderAddress, msgBody, msgValue);
+        return;
+    }
+
+    if (op == OP_BURN_NOTIFICATION) {
+        if (!init) {
+            return;
+        }
+        handleBurnNotification(queryId, senderAddress, msgBody);
+        saveData();
         return;
     }
 
