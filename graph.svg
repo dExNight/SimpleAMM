@@ -1,0 +1,49 @@
+<svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg">
+    <!-- White Background -->
+    <rect width="600" height="400" fill="white"/>
+
+    <!-- Contracts -->
+    <!-- Helper -->
+    <rect x="50" y="150" width="120" height="60" rx="5" fill="#c8e6c9" stroke="#388e3c" stroke-width="2"/>
+    <text x="110" y="185" text-anchor="middle" font-family="Arial" font-size="16">Helper</text>
+    
+    <!-- AMM -->
+    <rect x="250" y="150" width="120" height="60" rx="5" fill="#bbdefb" stroke="#1976d2" stroke-width="2"/>
+    <text x="310" y="185" text-anchor="middle" font-family="Arial" font-size="16">AMM</text>
+    
+    <!-- LP Wallet -->
+    <rect x="450" y="150" width="120" height="60" rx="5" fill="#e1bee7" stroke="#7b1fa2" stroke-width="2"/>
+    <text x="510" y="185" text-anchor="middle" font-family="Arial" font-size="16">LP Wallet</text>
+    
+    <!-- Token Wallets -->
+    <rect x="150" y="300" width="80" height="50" rx="5" fill="#ffecb3" stroke="#ffa000" stroke-width="2"/>
+    <text x="190" y="330" text-anchor="middle" font-family="Arial" font-size="16">Token A</text>
+    
+    <rect x="350" y="300" width="80" height="50" rx="5" fill="#ffecb3" stroke="#ffa000" stroke-width="2"/>
+    <text x="390" y="330" text-anchor="middle" font-family="Arial" font-size="16">Token B</text>
+
+    <!-- Arrows -->
+    <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#000"/>
+        </marker>
+    </defs>
+
+    <!-- Token Flow Arrows -->
+    <path d="M 190 300 L 280 210" fill="none" stroke="#ffa000" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="200" y="250" font-family="Arial" font-size="14">deposit A</text>
+    
+    <path d="M 390 300 L 300 210" fill="none" stroke="#ffa000" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="380" y="250" font-family="Arial" font-size="14">deposit B</text>
+
+    <!-- Helper-AMM Arrows -->
+    <path d="M 170 180 L 250 180" fill="none" stroke="#388e3c" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="210" y="170" font-family="Arial" font-size="14">prove</text>
+    
+    <path d="M 250 190 L 170 190" fill="none" stroke="#388e3c" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="210" y="205" font-family="Arial" font-size="14">verify</text>
+
+    <!-- Mint Arrow -->
+    <path d="M 370 180 L 450 180" fill="none" stroke="#7b1fa2" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="410" y="170" font-family="Arial" font-size="14">mint</text>
+</svg>
