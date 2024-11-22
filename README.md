@@ -12,6 +12,8 @@ SimpleAMM is a lightweight implementation of an Automated Market Maker (AMM) on 
 
 ## System Architecture
 
+![Contract Interaction](graph.svg)
+
 ### Smart Contracts
 1. **AMM Pool Contract**
    - Core AMM functionality
@@ -45,6 +47,3 @@ SimpleAMM is a lightweight implementation of an Automated Market Maker (AMM) on 
    - Burns LP tokens
    - Returns underlying assets proportionally
    - Supports partial withdrawals
-
-## Contract Interaction
-![Contract Interaction](graph.svg)
