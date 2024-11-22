@@ -415,6 +415,12 @@ describe('Amm', () => {
         const swapBAmount = 10n * BigInt(10 ** usdtDecimals);
         const minAAmountOut = expectedAmount;
 
+        const priceImpact = await amm.getPriceImpact({
+            amountIn: swapBAmount,
+            isTokenA: false,
+        });
+        console.log('Price impact: ', priceImpact, '%');
+        
         const userBalanceBefore: bigint = await userJettonAWallet.getJettonBalance();
 
         const swapResult = await userJettonBWallet.sendTransfer(user.getSender(), {

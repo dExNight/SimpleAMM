@@ -345,8 +345,20 @@ get expected_amount_out(amountIn: int, isTokenA: int): int {
 
 get price_impact(amountIn: int, isTokenA: int): (int, int) {
     loadData();
-    // TODO
-    return (1, 100);
+    var PERCENTAGE_DIVIDER: int = 10000; 
+    
+    var (reserveIn, reserveOut) = isTokenA ? (tokenA, tokenB) : (tokenB, tokenA);
+    
+    var amountOut = calculateAmountOut(amountIn, reserveIn, reserveOut);
+    
+    var spotPrice = mulDivFloor(PERCENTAGE_DIVIDER, reserveOut, reserveIn);
+    
+    var executionPrice = mulDivFloor(PERCENTAGE_DIVIDER, amountOut, amountIn);
+    
+    var priceRatio = mulDivFloor(executionPrice, PERCENTAGE_DIVIDER, spotPrice);
+    var impact = PERCENTAGE_DIVIDER - priceRatio;
+    
+    return (impact, PERCENTAGE_DIVIDER);
 }
 
 get get_jetton_data(): (int, int, slice, cell, cell) {
